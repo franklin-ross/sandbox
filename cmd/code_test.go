@@ -1,0 +1,45 @@
+package cmd
+
+import (
+	"encoding/hex"
+	"fmt"
+	"strings"
+	"testing"
+)
+
+func TestVSCodeRemoteURI(t *testing.T) {
+	// Mirrors the hex-encoding logic in codeCmd: the full container ID
+	// string is hex-encoded and embedded into the vscode-remote URI.
+	tests := []struct {
+		containerID string
+	}{
+		{"abc123def456"},
+		{"sha256:abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"},
+		{"a1b2c3"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.containerID, func(t *testing.T) {
+			hexID := hex.EncodeToString([]byte(tt.containerID))
+			uri := fmt.Sprintf("vscode-remote://attached-container+%s/workspace", hexID)
+
+			if !strings.HasPrefix(uri, "vscode-remote://attached-container+") {
+				t.Errorf("URI missing expected prefix: %q", uri)
+			}
+			if !strings.HasSuffix(uri, "/workspace") {
+				t.Errorf("URI missing /workspace suffix: %q", uri)
+			}
+
+			// Verify the hex portion round-trips back to the original ID
+			parts := strings.SplitN(uri, "+", 2)
+			hexPart := strings.TrimSuffix(parts[1], "/workspace")
+			decoded, err := hex.DecodeString(hexPart)
+			if err != nil {
+				t.Fatalf("hex decode failed: %v", err)
+			}
+			if string(decoded) != tt.containerID {
+				t.Errorf("round-trip failed: got %q, want %q", string(decoded), tt.containerID)
+			}
+		})
+	}
+}

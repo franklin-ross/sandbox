@@ -18,7 +18,7 @@ var firewallScript []byte
 //go:embed image/entrypoint.sh
 var entrypointScript []byte
 
-const (
+var (
 	imageName = "ao-sandbox"
 	credsVol  = "ao-sandbox-claude-creds"
 	labelSel  = "ao.sandbox=true"
