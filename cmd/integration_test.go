@@ -117,17 +117,23 @@ func TestContainerLifecycle(t *testing.T) {
 		t.Fatal("container not running after start")
 	}
 
-	// Stop it
+	// Stop it — container should still exist but not be running
+	if err := dockerRun("stop", name); err != nil {
+		t.Fatalf("docker stop: %v", err)
+	}
+	if !containerExists(name) {
+		t.Fatal("container should still exist after stop")
+	}
+	if isRunning(name) {
+		t.Fatal("container should not be running after stop")
+	}
+
+	// Remove it — container should be gone
 	if err := dockerRun("rm", "-f", name); err != nil {
 		t.Fatalf("docker rm: %v", err)
 	}
-
-	// Should be gone
 	if containerExists(name) {
 		t.Fatal("container exists after removal")
-	}
-	if isRunning(name) {
-		t.Fatal("container running after removal")
 	}
 }
 
@@ -231,7 +237,7 @@ func TestContainerWorkspaceMount(t *testing.T) {
 	}
 }
 
-func TestEnsureRunningReplacesStoppedContainer(t *testing.T) {
+func TestEnsureRunningRestartsStoppedContainer(t *testing.T) {
 	requireDocker(t)
 	useTestImage(t)
 	buildTestImage(t)
@@ -253,7 +259,7 @@ func TestEnsureRunningReplacesStoppedContainer(t *testing.T) {
 		entrypointScript = origEntrypoint
 	})
 
-	// Start a container, then stop it (but don't remove it)
+	// Start a container, write a marker file, then stop it
 	err := dockerRun("run", "-d",
 		"--name", name,
 		"--label", labelSel,
@@ -263,11 +269,17 @@ func TestEnsureRunningReplacesStoppedContainer(t *testing.T) {
 		t.Fatalf("docker run: %v", err)
 	}
 
+	// Write a marker inside the container (not on the mounted volume)
+	if out, err := exec.Command("docker", "exec", name,
+		"sh", "-c", "echo restarted > /tmp/marker").CombinedOutput(); err != nil {
+		t.Fatalf("docker exec write marker: %v\n%s", err, out)
+	}
+
 	if err := dockerRun("stop", name); err != nil {
 		t.Fatalf("docker stop: %v", err)
 	}
 
-	// Container exists but is not running — this is the "dead container" path
+	// Container exists but is not running
 	if !containerExists(name) {
 		t.Fatal("stopped container should still exist")
 	}
@@ -275,7 +287,7 @@ func TestEnsureRunningReplacesStoppedContainer(t *testing.T) {
 		t.Fatal("stopped container should not be running")
 	}
 
-	// ensureRunning should remove the dead container and start a fresh one
+	// ensureRunning should restart the same container, not replace it
 	got, err := ensureRunning(wsPath)
 	if err != nil {
 		t.Fatalf("ensureRunning after stop: %v", err)
@@ -284,7 +296,16 @@ func TestEnsureRunningReplacesStoppedContainer(t *testing.T) {
 		t.Errorf("ensureRunning returned %q, want %q", got, name)
 	}
 	if !isRunning(name) {
-		t.Fatal("container should be running after ensureRunning replaced it")
+		t.Fatal("container should be running after ensureRunning restarted it")
+	}
+
+	// The marker file should still exist, proving it was restarted not replaced
+	out, err := exec.Command("docker", "exec", name, "cat", "/tmp/marker").Output()
+	if err != nil {
+		t.Fatalf("docker exec read marker: %v", err)
+	}
+	if got := strings.TrimSpace(string(out)); got != "restarted" {
+		t.Errorf("marker = %q, want \"restarted\"", got)
 	}
 }
 

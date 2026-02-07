@@ -31,9 +31,13 @@ func ensureRunning(wsPath string) (string, error) {
 		return name, nil
 	}
 
-	// Remove dead container with same name
+	// Restart a stopped container
 	if containerExists(name) {
-		dockerRun("rm", "-f", name)
+		fmt.Printf("Restarting sandbox for %s...\n", wsPath)
+		if err := dockerRun("start", name); err != nil {
+			return "", fmt.Errorf("restart container: %w", err)
+		}
+		return name, nil
 	}
 
 	if err := ensureImage(); err != nil {

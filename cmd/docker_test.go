@@ -237,6 +237,16 @@ func TestDockerfileNonRootUser(t *testing.T) {
 	}
 }
 
+func TestDockerfileClaudeDir(t *testing.T) {
+	content := string(dockerfile)
+
+	// The Dockerfile must create /home/agent/.claude so that the Docker
+	// named volume inherits agent:agent ownership on first use.
+	if !strings.Contains(content, "mkdir -p /home/agent/.claude") {
+		t.Error("Dockerfile missing mkdir for /home/agent/.claude")
+	}
+}
+
 func TestDockerfileLanguageToolchains(t *testing.T) {
 	content := string(dockerfile)
 

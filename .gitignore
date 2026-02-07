@@ -35,3 +35,6 @@ sandbox/sandbox
 
 # Task
 .task/
+
+# Claude
+.claude/

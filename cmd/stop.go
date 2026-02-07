@@ -8,7 +8,7 @@ import (
 
 var stopCmd = &cobra.Command{
 	Use:   "stop [path]",
-	Short: "Stop and remove a sandbox",
+	Short: "Stop a running sandbox",
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		wsPath := "."
@@ -18,11 +18,11 @@ var stopCmd = &cobra.Command{
 		wsPath = resolvePath(wsPath)
 
 		name := containerName(wsPath)
-		if !containerExists(name) {
+		if !isRunning(name) {
 			fmt.Printf("No sandbox running for %s\n", wsPath)
 			return nil
 		}
-		if err := dockerRun("rm", "-f", name); err != nil {
+		if err := dockerRun("stop", name); err != nil {
 			return fmt.Errorf("stop container: %w", err)
 		}
 		fmt.Printf("Sandbox %s stopped\n", name)
