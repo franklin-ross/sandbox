@@ -1,0 +1,34 @@
+# Go build output
+/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go test
+*.test
+*.out
+*.prof
+cover.html
+
+# Go workspace
+go.work.sum
+
+# Vendor (if not committed)
+# vendor/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build output
+/bin/
+sandbox/sandbox
