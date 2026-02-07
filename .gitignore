@@ -32,6 +32,7 @@ Thumbs.db
 # Build output
 /bin/
 sandbox/sandbox
+sandbox/cmd/image/workflow-linux
 
 # Task
 .task/

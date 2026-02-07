@@ -18,6 +18,9 @@ var firewallScript []byte
 //go:embed image/entrypoint.sh
 var entrypointScript []byte
 
+//go:embed image/workflow-linux
+var workflowBinary []byte
+
 var (
 	imageName = "ao-sandbox"
 	credsVol  = "ao-sandbox-claude-creds"
@@ -83,6 +86,9 @@ func buildImage() error {
 		return err
 	}
 	if err := os.WriteFile(filepath.Join(dir, "entrypoint.sh"), entrypointScript, 0755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(dir, "workflow"), workflowBinary, 0755); err != nil {
 		return err
 	}
 

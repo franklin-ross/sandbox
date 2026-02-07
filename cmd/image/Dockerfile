@@ -51,6 +51,12 @@ RUN mkdir -p /home/agent/go
 # Oh My Zsh
 RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
 
+# Task runner (https://taskfile.dev)
+RUN sh -c "$(curl -fsSL https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
+
+# Workflow binary
+COPY workflow-linux /usr/local/bin/workflow
+
 # Firewall + entrypoint
 USER root
 COPY init-firewall.sh /opt/init-firewall.sh
