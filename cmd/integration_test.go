@@ -16,7 +16,7 @@ func dockerAvailable() bool {
 func requireDocker(t *testing.T) {
 	t.Helper()
 	if !dockerAvailable() {
-		t.Fatal("docker not available")
+		t.Skip("skipping: docker is not available in this environment")
 	}
 }
 
