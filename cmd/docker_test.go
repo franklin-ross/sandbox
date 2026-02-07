@@ -246,6 +246,44 @@ func TestDockerfileClaudeDir(t *testing.T) {
 	}
 }
 
+func TestNoDockerInDocker(t *testing.T) {
+	dfContent := string(dockerfile)
+
+	// The sandbox image must never install Docker tooling. Allowing
+	// Docker-in-Docker would let a sandboxed process escape the container
+	// by talking to the host daemon or launching sibling containers.
+	forbiddenPackages := []string{
+		"docker.io",
+		"docker-ce",
+		"docker-ce-cli",
+		"containerd",
+		"dockerd",
+	}
+	for _, pkg := range forbiddenPackages {
+		if strings.Contains(dfContent, pkg) {
+			t.Errorf("Dockerfile must not install %q — Docker-in-Docker is a container-escape vector", pkg)
+		}
+	}
+
+	// Also verify the runtime configuration in docker.go doesn't enable DinD.
+	goSource, err := os.ReadFile("docker.go")
+	if err != nil {
+		t.Fatalf("reading docker.go: %v", err)
+	}
+	goContent := string(goSource)
+
+	// The host Docker socket must never be mounted into the container.
+	if strings.Contains(goContent, "docker.sock") {
+		t.Error("docker.go must not mount /var/run/docker.sock — Docker-in-Docker is a container-escape vector")
+	}
+
+	// --privileged grants full host device access, enabling DinD and
+	// defeating every other sandbox restriction.
+	if strings.Contains(goContent, "--privileged") {
+		t.Error("docker.go must not use --privileged — it enables Docker-in-Docker and full host access")
+	}
+}
+
 func TestDockerfileLanguageToolchains(t *testing.T) {
 	content := string(dockerfile)
 
