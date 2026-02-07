@@ -51,18 +51,14 @@ RUN mkdir -p /home/agent/go
 # Oh My Zsh
 RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
 
-# Workspace
-USER root
-RUN mkdir -p /workspace && chown agent:agent /workspace
-
 # Firewall + entrypoint
+USER root
 COPY init-firewall.sh /opt/init-firewall.sh
 COPY entrypoint.sh /opt/entrypoint.sh
 RUN chmod +x /opt/init-firewall.sh /opt/entrypoint.sh
 
 USER agent
 RUN mkdir -p /home/agent/.claude
-WORKDIR /workspace
 
 ENTRYPOINT ["/opt/entrypoint.sh"]
 CMD ["sleep", "infinity"]

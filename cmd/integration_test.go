@@ -103,7 +103,7 @@ func TestContainerLifecycle(t *testing.T) {
 		"--name", name,
 		"--label", labelSel,
 		"--label", labelWs+"="+wsPath,
-		"-v", wsPath+":/workspace",
+		"-v", wsPath+":"+wsPath,
 		testImageName)
 	if err != nil {
 		t.Fatalf("docker run: %v", err)
@@ -189,7 +189,7 @@ func TestContainerExecSimple(t *testing.T) {
 
 	err := dockerRun("run", "-d",
 		"--name", name,
-		"-v", wsPath+":/workspace",
+		"-v", wsPath+":"+wsPath,
 		testImageName)
 	if err != nil {
 		t.Fatalf("docker run: %v", err)
@@ -221,14 +221,14 @@ func TestContainerWorkspaceMount(t *testing.T) {
 
 	err := dockerRun("run", "-d",
 		"--name", name,
-		"-v", wsPath+":/workspace",
+		"-v", wsPath+":"+wsPath,
 		testImageName)
 	if err != nil {
 		t.Fatalf("docker run: %v", err)
 	}
 
 	// Verify the file is visible inside the container
-	out, err := exec.Command("docker", "exec", name, "cat", "/workspace/testfile.txt").Output()
+	out, err := exec.Command("docker", "exec", name, "cat", wsPath+"/testfile.txt").Output()
 	if err != nil {
 		t.Fatalf("docker exec cat: %v", err)
 	}
@@ -263,7 +263,7 @@ func TestEnsureRunningRestartsStoppedContainer(t *testing.T) {
 	err := dockerRun("run", "-d",
 		"--name", name,
 		"--label", labelSel,
-		"-v", wsPath+":/workspace",
+		"-v", wsPath+":"+wsPath,
 		testImageName)
 	if err != nil {
 		t.Fatalf("docker run: %v", err)
@@ -320,7 +320,7 @@ func TestContainerWriteFromInsideVisibleOnHost(t *testing.T) {
 
 	err := dockerRun("run", "-d",
 		"--name", name,
-		"-v", wsPath+":/workspace",
+		"-v", wsPath+":"+wsPath,
 		testImageName)
 	if err != nil {
 		t.Fatalf("docker run: %v", err)
@@ -328,7 +328,7 @@ func TestContainerWriteFromInsideVisibleOnHost(t *testing.T) {
 
 	// Write a file from inside the container
 	out, err := exec.Command("docker", "exec", name,
-		"sh", "-c", "echo from-container > /workspace/created.txt && cat /workspace/created.txt").Output()
+		"sh", "-c", "echo from-container > "+wsPath+"/created.txt && cat "+wsPath+"/created.txt").Output()
 	if err != nil {
 		t.Fatalf("docker exec: %v", err)
 	}

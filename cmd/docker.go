@@ -51,7 +51,8 @@ func ensureRunning(wsPath string) (string, error) {
 		"--label", labelWs+"="+wsPath,
 		"--cap-add", "NET_ADMIN",
 		"-v", credsVol+":/home/agent/.claude",
-		"-v", wsPath+":/workspace",
+		"-v", wsPath+":"+wsPath,
+		"-w", wsPath,
 		imageName)
 	if err != nil {
 		return "", fmt.Errorf("start container: %w", err)
@@ -94,8 +95,8 @@ func buildImage() error {
 	return nil
 }
 
-func dockerExec(container string, args ...string) error {
-	cmdArgs := append([]string{"exec", "-it", container}, args...)
+func dockerExec(container, workdir string, args ...string) error {
+	cmdArgs := append([]string{"exec", "-it", "-w", workdir, container}, args...)
 	cmd := exec.Command("docker", cmdArgs...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout

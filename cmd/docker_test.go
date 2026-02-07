@@ -137,7 +137,6 @@ func TestDockerfileContent(t *testing.T) {
 		"claude-code",
 		"init-firewall.sh",
 		"entrypoint.sh",
-		"WORKDIR /workspace",
 		"sleep",
 	}
 

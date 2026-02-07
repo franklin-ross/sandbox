@@ -34,7 +34,7 @@ Examples:
 
 		execArgs := []string{"claude", "--dangerously-skip-permissions"}
 		execArgs = append(execArgs, claudeArgs...)
-		return dockerExec(name, execArgs...)
+		return dockerExec(name, wsPath, execArgs...)
 	},
 }
 

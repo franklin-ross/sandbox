@@ -33,7 +33,7 @@ var codeCmd = &cobra.Command{
 		}
 		id := strings.TrimSpace(string(out))
 		hexID := hex.EncodeToString([]byte(id))
-		uri := fmt.Sprintf("vscode-remote://attached-container+%s/workspace", hexID)
+		uri := fmt.Sprintf("vscode-remote://attached-container+%s%s", hexID, wsPath)
 
 		fmt.Printf("Opening VSCode for %s...\n", wsPath)
 		c := exec.Command("code", "--folder-uri", uri)
