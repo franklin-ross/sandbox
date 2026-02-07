@@ -32,3 +32,6 @@ Thumbs.db
 # Build output
 /bin/
 sandbox/sandbox
+
+# Task
+.task/
