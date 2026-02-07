@@ -23,7 +23,7 @@ func runShell(wsPath string) error {
 	if err != nil {
 		return err
 	}
-	return dockerExec(name, "zsh")
+	return dockerExec(name, "/bin/zsh")
 }
 
 func init() {

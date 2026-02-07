@@ -2,7 +2,6 @@ FROM ubuntu:24.04
 
 ARG NODE_VERSION=22
 ARG GO_VERSION=1.23.6
-ARG RUBY_VERSION=3.3
 ARG TARGETARCH
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -17,7 +16,7 @@ RUN apt-get update && apt-get install -y \
     ca-certificates gnupg \
     iptables dnsutils iproute2 \
     python3 python3-pip python3-venv \
-    ruby${RUBY_VERSION} ruby${RUBY_VERSION}-dev \
+    ruby ruby-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Node.js via NodeSource
@@ -62,6 +61,7 @@ COPY entrypoint.sh /opt/entrypoint.sh
 RUN chmod +x /opt/init-firewall.sh /opt/entrypoint.sh
 
 USER agent
+RUN mkdir -p /home/agent/.claude
 WORKDIR /workspace
 
 ENTRYPOINT ["/opt/entrypoint.sh"]
