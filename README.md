@@ -86,15 +86,15 @@ This stores credentials in a Docker volume (`ao-sandbox-claude-creds`) shared ac
 
 The firewall allows outbound traffic to:
 
-| Service | Domains |
-|---|---|
-| Claude API | api.anthropic.com, api.claude.ai, claude.ai |
-| npm / Yarn | registry.npmjs.org, registry.yarnpkg.com |
-| Go | proxy.golang.org, sum.golang.org, storage.googleapis.com |
-| Rust | crates.io, static.crates.io, static.rust-lang.org |
-| Ruby | rubygems.org |
-| PyPI | pypi.org, files.pythonhosted.org |
-| GitHub | github.com, api.github.com, *.githubusercontent.com |
+| Service    | Domains                                                  |
+| ---------- | -------------------------------------------------------- |
+| Claude API | api.anthropic.com, api.claude.ai, claude.ai              |
+| npm / Yarn | registry.npmjs.org, registry.yarnpkg.com                 |
+| Go         | proxy.golang.org, sum.golang.org, storage.googleapis.com |
+| Rust       | crates.io, static.crates.io, static.rust-lang.org        |
+| Ruby       | rubygems.org                                             |
+| PyPI       | pypi.org, files.pythonhosted.org                         |
+| GitHub     | github.com, api.github.com, \*.githubusercontent.com     |
 
 Everything else is blocked. DNS is allowed so domains can be resolved at container start time.
 
