@@ -32,7 +32,7 @@ RUN curl -fsSL https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz | ta
 ENV PATH="/usr/local/go/bin:${PATH}"
 
 # Claude Code CLI
-RUN npm install -g @anthropic-ai/claude-code
+RUN curl -fsSL https://claude.ai/install.sh | bash
 
 # Non-root user
 RUN useradd -m -s /bin/zsh agent \
