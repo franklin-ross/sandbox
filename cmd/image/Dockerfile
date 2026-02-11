@@ -31,28 +31,32 @@ RUN corepack enable && corepack prepare yarn@stable --activate
 RUN curl -fsSL https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz | tar -C /usr/local -xz
 ENV PATH="/usr/local/go/bin:${PATH}"
 
-# Claude Code CLI
-RUN curl -fsSL https://claude.ai/install.sh | bash
-
 # Task runner (https://taskfile.dev)
 RUN sh -c "$(curl -fsSL https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
 
 # Non-root user
 RUN useradd -m -s /bin/zsh agent \
     && echo "agent ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+USER agent
 
 # Install Rust as agent user
-USER agent
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/home/agent/.cargo/bin:${PATH}"
+
+# Claude Code CLI
+RUN curl -fsSL https://claude.ai/install.sh | bash
+ENV PATH="/home/agent/.claude/bin:${PATH}"
 
 # Go workspace
 ENV GOPATH="/home/agent/go"
 ENV PATH="${GOPATH}/bin:${PATH}"
 RUN mkdir -p /home/agent/go
 
-# Oh My Zsh
-RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+# Oh My Zsh + plugins
+RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended \
+    && sed -i 's/^plugins=(git)/plugins=(git npm yarn golang rust)/' /home/agent/.zshrc \
+    && echo 'eval "$(task --completion zsh)"' >> /home/agent/.zshrc \
+    && echo 'eval "$(workflow completion zsh)"' >> /home/agent/.zshrc
 
 # Workflow binary
 COPY workflow-linux /usr/local/bin/workflow
