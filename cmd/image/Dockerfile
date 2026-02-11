@@ -34,6 +34,9 @@ ENV PATH="/usr/local/go/bin:${PATH}"
 # Claude Code CLI
 RUN curl -fsSL https://claude.ai/install.sh | bash
 
+# Task runner (https://taskfile.dev)
+RUN sh -c "$(curl -fsSL https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
+
 # Non-root user
 RUN useradd -m -s /bin/zsh agent \
     && echo "agent ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
@@ -50,9 +53,6 @@ RUN mkdir -p /home/agent/go
 
 # Oh My Zsh
 RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
-
-# Task runner (https://taskfile.dev)
-RUN sh -c "$(curl -fsSL https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
 
 # Workflow binary
 COPY workflow-linux /usr/local/bin/workflow
