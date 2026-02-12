@@ -50,6 +50,7 @@ func ensureRunning(wsPath string) (string, error) {
 	fmt.Printf("Starting sandbox for %s...\n", wsPath)
 	cmd := exec.Command("docker", "run", "-d",
 		"--name", name,
+		"--hostname", name,
 		"--label", labelSel,
 		"--label", labelWs+"="+wsPath,
 		"--cap-add", "NET_ADMIN",
