@@ -45,7 +45,7 @@ ENV PATH="/home/agent/.cargo/bin:${PATH}"
 
 # Claude Code CLI
 RUN curl -fsSL https://claude.ai/install.sh | bash
-ENV PATH="/home/agent/.claude/bin:${PATH}"
+ENV PATH="/home/agent/.local/bin:${PATH}"
 
 # Go workspace
 ENV GOPATH="/home/agent/go"

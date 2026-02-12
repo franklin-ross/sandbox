@@ -9,6 +9,12 @@ import (
 
 const testImageName = "ao-sandbox-test"
 
+// Minimal test image Dockerfile.
+const testDockerfile = `FROM alpine:latest
+RUN apk add --no-cache bash
+CMD ["sleep", "infinity"]
+`
+
 func dockerAvailable() bool {
 	return exec.Command("docker", "info").Run() == nil
 }
@@ -34,8 +40,7 @@ func buildTestImage(t *testing.T) {
 	t.Helper()
 
 	dir := t.TempDir()
-	df := []byte("FROM alpine:latest\nRUN apk add --no-cache bash\nCMD [\"sleep\", \"infinity\"]\n")
-	if err := os.WriteFile(dir+"/Dockerfile", df, 0644); err != nil {
+	if err := os.WriteFile(dir+"/Dockerfile", []byte(testDockerfile), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -48,6 +53,23 @@ func buildTestImage(t *testing.T) {
 
 	t.Cleanup(func() {
 		exec.Command("docker", "rmi", "-f", testImageName).Run()
+	})
+}
+
+// overrideEmbeddedFiles replaces the package-level embedded files with stubs
+// so ensureImage won't try to rebuild the real sandbox image during tests.
+func overrideEmbeddedFiles(t *testing.T) {
+	t.Helper()
+	origDockerfile := dockerfile
+	origFirewall := firewallScript
+	origEntrypoint := entrypointScript
+	dockerfile = []byte(testDockerfile)
+	firewallScript = []byte("#!/bin/sh\n")
+	entrypointScript = []byte("#!/bin/sh\nexec \"$@\"\n")
+	t.Cleanup(func() {
+		dockerfile = origDockerfile
+		firewallScript = origFirewall
+		entrypointScript = origEntrypoint
 	})
 }
 
@@ -146,18 +168,7 @@ func TestEnsureRunningIdempotent(t *testing.T) {
 	name := containerName(wsPath)
 	removeContainer(t, name)
 
-	// Override ensureImage to use the already-built test image
-	origDockerfile := dockerfile
-	origFirewall := firewallScript
-	origEntrypoint := entrypointScript
-	dockerfile = []byte("FROM alpine:latest\nCMD [\"sleep\", \"infinity\"]\n")
-	firewallScript = []byte("#!/bin/sh\n")
-	entrypointScript = []byte("#!/bin/sh\nexec \"$@\"\n")
-	t.Cleanup(func() {
-		dockerfile = origDockerfile
-		firewallScript = origFirewall
-		entrypointScript = origEntrypoint
-	})
+	overrideEmbeddedFiles(t)
 
 	// First call should start
 	got, err := ensureRunning(wsPath)
@@ -246,18 +257,7 @@ func TestEnsureRunningRestartsStoppedContainer(t *testing.T) {
 	name := containerName(wsPath)
 	removeContainer(t, name)
 
-	// Override embedded files so ensureImage uses our test image
-	origDockerfile := dockerfile
-	origFirewall := firewallScript
-	origEntrypoint := entrypointScript
-	dockerfile = []byte("FROM alpine:latest\nCMD [\"sleep\", \"infinity\"]\n")
-	firewallScript = []byte("#!/bin/sh\n")
-	entrypointScript = []byte("#!/bin/sh\nexec \"$@\"\n")
-	t.Cleanup(func() {
-		dockerfile = origDockerfile
-		firewallScript = origFirewall
-		entrypointScript = origEntrypoint
-	})
+	overrideEmbeddedFiles(t)
 
 	// Start a container, write a marker file, then stop it
 	err := dockerRun("run", "-d",

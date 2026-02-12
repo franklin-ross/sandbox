@@ -48,7 +48,7 @@ func ensureRunning(wsPath string) (string, error) {
 	}
 
 	fmt.Printf("Starting sandbox for %s...\n", wsPath)
-	err := dockerRun("run", "-d",
+	cmd := exec.Command("docker", "run", "-d",
 		"--name", name,
 		"--label", labelSel,
 		"--label", labelWs+"="+wsPath,
@@ -57,6 +57,8 @@ func ensureRunning(wsPath string) (string, error) {
 		"-v", wsPath+":"+wsPath,
 		"-w", wsPath,
 		imageName)
+	// cmd.Stderr = os.Stderr
+	err := cmd.Run()
 	if err != nil {
 		return "", fmt.Errorf("start container: %w", err)
 	}
