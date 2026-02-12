@@ -39,3 +39,5 @@ sandbox/cmd/image/workflow-linux
 
 # Claude
 .claude/
+
+.workspace/
