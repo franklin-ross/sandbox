@@ -44,14 +44,7 @@ var updateCmd = &cobra.Command{
 			fmt.Printf("  pushed %s → %s\n", f.desc, f.dest)
 		}
 
-		// Re-run the firewall script to apply iptables rules live.
-		fmt.Println("  applying firewall rules...")
-		out, err := exec.Command("docker", "exec", name, "sudo", "/opt/init-firewall.sh").CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("apply firewall rules: %w\n%s", err, out)
-		}
-
-		fmt.Println("\nUpdate complete. Entrypoint changes take effect on next container restart.")
+		fmt.Println("\nUpdate complete. Entrypoint & firewall changes take effect on next container restart.")
 		return nil
 	},
 }
