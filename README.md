@@ -1,12 +1,12 @@
 # sandbox
 
-A CLI tool for running Claude Code in sandboxed Docker containers with network firewalling, persistent SSO auth, and no permission prompts.
+A CLI tool for running Claude Code in sandboxed Docker containers with network firewalling, persistent API keys, and no permission prompts.
 
 ## Why
 
 The official Claude Code Docker sandbox has an opinionated auth flow that makes autonomous agent use painful. This tool gives you:
 
-- **SSO auth once, persisted forever** via a shared Docker volume — no re-authenticating across containers
+- **API key stored once, persisted forever** via a shared Docker volume — no re-authenticating across containers
 - **Network firewalling** — outbound traffic restricted to Claude API, package registries (npm, Go, Rust, Ruby, PyPI), and GitHub
 - **No permission prompts** — `--dangerously-skip-permissions` by default, because the container IS the sandbox
 - **zsh shell at workspace root** — not dropped straight into Claude
@@ -60,15 +60,14 @@ sandbox build
 
 On first launch, the Docker image will be built automatically. This takes a few minutes (Ubuntu + Node, Go, Rust, Ruby, Python).
 
-You'll need to authenticate Claude once:
+Set your Anthropic API key:
 
 ```bash
-sandbox .
-# Inside the container:
-claude /login
+sandbox start .
+sandbox set-key anthropic
 ```
 
-This stores credentials in a Docker volume (`ao-sandbox-claude-creds`) shared across all sandboxes. You won't need to log in again.
+The key is stored in a persistent Docker volume (`ao-sandbox-creds`) shared across all sandboxes. You won't need to set it again.
 
 ## What's in the container
 
@@ -105,7 +104,7 @@ The Docker image files are embedded in the `sandbox` binary via `go:embed`. When
 1. Writes the embedded Dockerfile and scripts to a temp directory
 2. Builds the image (if not already built)
 3. Runs the container with `--cap-add=NET_ADMIN` (for iptables)
-4. Mounts your workspace at `/workspace` and the credentials volume at `~/.claude`
+4. Mounts your workspace and the API key volume at `~/.claude`
 5. The entrypoint sets up iptables firewall rules, then sleeps
 
 You then interact via `sandbox shell`, `sandbox claude`, or `sandbox code`.

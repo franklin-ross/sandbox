@@ -11,7 +11,7 @@ import (
 var updateCmd = &cobra.Command{
 	Use:   "update [path]",
 	Short: "Push updated files into a running sandbox",
-	Long:  `Copy the workflow binary, entrypoint script, and firewall script into a running sandbox container without rebuilding the image.`,
+	Long:  `Copy the workflow binary, agent binary, entrypoint script, and firewall script into a running sandbox container without rebuilding the image.`,
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		wsPath := "."
@@ -32,6 +32,7 @@ var updateCmd = &cobra.Command{
 		}
 		files := []file{
 			{workflowBinary, "/usr/local/bin/workflow", "workflow binary"},
+			{agentBinary, "/usr/local/bin/agent", "agent binary"},
 			{entrypointScript, "/opt/entrypoint.sh", "entrypoint script"},
 			{firewallScript, "/opt/init-firewall.sh", "firewall script"},
 		}
@@ -64,6 +65,9 @@ func copyToContainer(container string, data []byte, dest string) error {
 	defer os.Remove(tmp.Name())
 
 	if err := os.WriteFile(tmp.Name(), data, 0755); err != nil {
+		return err
+	}
+	if err := os.Chmod(tmp.Name(), 0755); err != nil {
 		return err
 	}
 	tmp.Close()

@@ -33,6 +33,7 @@ Thumbs.db
 /bin/
 sandbox/sandbox
 sandbox/cmd/image/workflow-linux
+sandbox/cmd/image/agent-linux
 
 # Task
 .task/
