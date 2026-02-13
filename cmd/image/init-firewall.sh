@@ -4,7 +4,7 @@ set -euo pipefail
 # ============================================================
 # Firewall whitelist for Claude Code sandbox
 #
-# Allows: Claude API, npm/yarn, Go, Rust, Ruby, GitHub, PyPI
+# Allows: Claude API, npm/yarn/bun/pnpm, Go, Rust, Ruby, GitHub, PyPI
 # Denies: everything else outbound
 # ============================================================
 
@@ -31,9 +31,11 @@ ALLOWED_DOMAINS=(
     statsig.anthropic.com
     sentry.io
 
-    # npm / yarn
+    # npm / yarn / bun / pnpm
     registry.npmjs.org
     registry.yarnpkg.com
+    registry.bun.sh
+    registry.npmmirror.com
 
     # Go
     proxy.golang.org
@@ -97,4 +99,4 @@ done
 iptables -A OUTPUT -j REJECT --reject-with icmp-port-unreachable
 
 echo "Firewall initialized. Outbound traffic restricted to whitelisted domains."
-echo "Allowed: Claude API, npm/yarn, Go, Rust, Ruby, PyPI, GitHub"
+echo "Allowed: Claude API, npm/yarn/bun/pnpm, Go, Rust, Ruby, PyPI, GitHub"

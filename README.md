@@ -88,7 +88,7 @@ The firewall allows outbound traffic to:
 | Service    | Domains                                                  |
 | ---------- | -------------------------------------------------------- |
 | Claude API | api.anthropic.com, api.claude.ai, claude.ai              |
-| npm / Yarn | registry.npmjs.org, registry.yarnpkg.com                 |
+| npm / Yarn / Bun / pnpm | registry.npmjs.org, registry.yarnpkg.com, registry.bun.sh, registry.npmmirror.com |
 | Go         | proxy.golang.org, sum.golang.org, storage.googleapis.com |
 | Rust       | crates.io, static.crates.io, static.rust-lang.org        |
 | Ruby       | rubygems.org                                             |
