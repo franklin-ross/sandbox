@@ -301,7 +301,7 @@ func syncContainer(name string, force bool) error {
 		}
 	}
 
-	if err := exec.Command("docker", "exec", name, "sh", "-c", fmt.Sprintf("echo %s > /opt/ao-sync.sha256", hash)).Run(); err != nil {
+	if err := exec.Command("docker", "exec", "-u", "root", name, "sh", "-c", fmt.Sprintf("echo %s > /opt/ao-sync.sha256", hash)).Run(); err != nil {
 		return fmt.Errorf("write sync hash: %w", err)
 	}
 
