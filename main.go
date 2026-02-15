@@ -1,7 +1,7 @@
 package main
 
 import (
-	"github.com/stile/ao/sandbox/cmd"
+	"github.com/franklinross/ao/sandbox/cmd"
 )
 
 func main() {
