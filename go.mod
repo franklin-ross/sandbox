@@ -1,6 +1,6 @@
-module github.com/stile/ao
+module github.com/franklinross/ao
 
-go 1.25.7
+go 1.26.0
 
 require (
 	github.com/charmbracelet/glamour v0.10.0
