@@ -11,7 +11,7 @@ var rmAll bool
 var rmCmd = &cobra.Command{
 	Use:   "rm [path]",
 	Short: "Remove a sandbox container",
-	Long:  `Remove a sandbox container. The API key volume is preserved. Use -all to also remove it.`,
+	Long:  `Remove a sandbox container. The credentials volume is preserved. Use -all to also remove it.`,
 	Args:  cobra.MaximumNArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		wsPath := "."
@@ -32,9 +32,9 @@ var rmCmd = &cobra.Command{
 
 		if rmAll {
 			if err := dockerRun("volume", "rm", credsVol); err != nil {
-				return fmt.Errorf("remove API key volume: %w", err)
+				return fmt.Errorf("remove credentials volume: %w", err)
 			}
-			fmt.Println("API key volume removed")
+			fmt.Println("Credentials volume removed")
 		}
 
 		return nil
@@ -42,6 +42,6 @@ var rmCmd = &cobra.Command{
 }
 
 func init() {
-	rmCmd.Flags().BoolVarP(&rmAll, "all", "a", false, "Also remove the API key volume")
+	rmCmd.Flags().BoolVarP(&rmAll, "all", "a", false, "Also remove the credentials volume")
 	rootCmd.AddCommand(rmCmd)
 }

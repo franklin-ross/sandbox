@@ -56,8 +56,7 @@ RUN mkdir -p /home/agent/go
 RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended \
     && sed -i 's/^plugins=(git)/plugins=(git npm yarn golang rust)/' /home/agent/.zshrc \
     && echo 'eval "$(task --completion zsh)"' >> /home/agent/.zshrc \
-    && echo 'eval "$(workflow completion zsh)"' >> /home/agent/.zshrc \
-    && echo '[ -f ~/.claude/.anthropic-key ] && export ANTHROPIC_API_KEY=$(cat ~/.claude/.anthropic-key)' >> /home/agent/.zshrc
+    && echo 'eval "$(workflow completion zsh)"' >> /home/agent/.zshrc
 
 # CLI binaries
 COPY workflow-linux /usr/local/bin/workflow
