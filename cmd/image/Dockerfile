@@ -63,10 +63,6 @@ RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master
     && sed -i "s/^ZSH_THEME=.*/ZSH_THEME=\"$ZSH_THEME\"/" /home/agent/.zshrc \
     && if [ -n "$CUSTOM_THEME" ]; then echo "$CUSTOM_THEME" | base64 -d > /home/agent/.oh-my-zsh/custom/themes/$ZSH_THEME.zsh-theme; fi
 
-# CLI binaries
-COPY workflow-linux /usr/local/bin/workflow
-COPY agent-linux /usr/local/bin/agent
-
 # Firewall + entrypoint
 USER root
 COPY init-firewall.sh /opt/init-firewall.sh

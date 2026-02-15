@@ -9,9 +9,14 @@ import (
 
 const testImageName = "ao-sandbox-test"
 
-// Minimal test image Dockerfile.
+// Minimal test image that mirrors the sandbox structure (agent user, .zshrc)
+// so syncContainer exercises the real code paths.
 const testDockerfile = `FROM alpine:latest
 RUN apk add --no-cache bash
+RUN adduser -D -s /bin/sh agent \
+    && mkdir -p /home/agent/.oh-my-zsh/custom/themes \
+    && echo 'ZSH_THEME="robbyrussell"' > /home/agent/.zshrc \
+    && chown -R agent:agent /home/agent
 CMD ["sleep", "infinity"]
 `
 
@@ -63,13 +68,16 @@ func overrideEmbeddedFiles(t *testing.T) {
 	origDockerfile := dockerfile
 	origFirewall := firewallScript
 	origEntrypoint := entrypointScript
+	origWorkflow := workflowBinary
 	dockerfile = []byte(testDockerfile)
 	firewallScript = []byte("#!/bin/sh\n")
 	entrypointScript = []byte("#!/bin/sh\nexec \"$@\"\n")
+	workflowBinary = []byte("#!/bin/sh\n")
 	t.Cleanup(func() {
 		dockerfile = origDockerfile
 		firewallScript = origFirewall
 		entrypointScript = origEntrypoint
+		workflowBinary = origWorkflow
 	})
 }
 
