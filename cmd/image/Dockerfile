@@ -52,11 +52,16 @@ ENV GOPATH="/home/agent/go"
 ENV PATH="${GOPATH}/bin:${PATH}"
 RUN mkdir -p /home/agent/go
 
+ARG ZSH_THEME=robbyrussell
+ARG CUSTOM_THEME=
+
 # Oh My Zsh + plugins
 RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended \
     && sed -i 's/^plugins=(git)/plugins=(git npm yarn golang rust)/' /home/agent/.zshrc \
     && echo 'eval "$(task --completion zsh)"' >> /home/agent/.zshrc \
-    && echo 'eval "$(workflow completion zsh)"' >> /home/agent/.zshrc
+    && echo 'eval "$(workflow completion zsh)"' >> /home/agent/.zshrc \
+    && sed -i "s/^ZSH_THEME=.*/ZSH_THEME=\"$ZSH_THEME\"/" /home/agent/.zshrc \
+    && if [ -n "$CUSTOM_THEME" ]; then echo "$CUSTOM_THEME" | base64 -d > /home/agent/.oh-my-zsh/custom/themes/$ZSH_THEME.zsh-theme; fi
 
 # CLI binaries
 COPY workflow-linux /usr/local/bin/workflow

@@ -1,11 +1,14 @@
 package cmd
 
 import (
+	"bufio"
 	_ "embed"
+	"encoding/base64"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -101,7 +104,19 @@ func buildImage() error {
 		return err
 	}
 
-	cmd := exec.Command("docker", "build", "-t", imageName, dir)
+	buildArgs := []string{"build", "-t", imageName}
+	if theme := zshTheme(); theme != "" {
+		buildArgs = append(buildArgs, "--build-arg", "ZSH_THEME="+theme)
+		if tp := customThemePath(theme); tp != "" {
+			data, err := os.ReadFile(tp)
+			if err != nil {
+				return fmt.Errorf("read custom theme: %w", err)
+			}
+			buildArgs = append(buildArgs, "--build-arg", "CUSTOM_THEME="+base64.StdEncoding.EncodeToString(data))
+		}
+	}
+	buildArgs = append(buildArgs, dir)
+	cmd := exec.Command("docker", buildArgs...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -151,6 +166,45 @@ func dockerRun(args ...string) error {
 
 func containerName(wsPath string) string {
 	return "ao-sandbox-" + filepath.Base(wsPath)
+}
+
+// zshTheme returns the user's ZSH theme name. It checks the ZSH_THEME
+// environment variable first, then falls back to parsing ~/.zshrc.
+// ZSH_THEME is typically a shell variable (not exported), so child processes
+// like this binary won't see it via os.Getenv.
+func zshTheme() string {
+	if t := os.Getenv("ZSH_THEME"); t != "" {
+		return t
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	f, err := os.Open(filepath.Join(home, ".zshrc"))
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	re := regexp.MustCompile(`^ZSH_THEME="(.+)"`)
+	s := bufio.NewScanner(f)
+	for s.Scan() {
+		if m := re.FindStringSubmatch(s.Text()); m != nil {
+			return m[1]
+		}
+	}
+	return ""
+}
+
+func customThemePath(theme string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	p := filepath.Join(home, ".oh-my-zsh", "custom", "themes", theme+".zsh-theme")
+	if _, err := os.Stat(p); err != nil {
+		return ""
+	}
+	return p
 }
 
 func resolvePath(p string) string {

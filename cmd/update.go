@@ -44,6 +44,29 @@ var updateCmd = &cobra.Command{
 			fmt.Printf("  pushed %s → %s\n", f.desc, f.dest)
 		}
 
+		if theme := zshTheme(); theme != "" {
+			sedCmd := fmt.Sprintf(`s/^ZSH_THEME=.*/ZSH_THEME="%s"/`, theme)
+			if err := exec.Command("docker", "exec", name, "sed", "-i", sedCmd, "/home/agent/.zshrc").Run(); err != nil {
+				return fmt.Errorf("update ZSH_THEME: %w", err)
+			}
+			fmt.Printf("  applied ZSH_THEME=%s\n", theme)
+
+			if tp := customThemePath(theme); tp != "" {
+				data, err := os.ReadFile(tp)
+				if err != nil {
+					return fmt.Errorf("read custom theme: %w", err)
+				}
+				dest := fmt.Sprintf("/home/agent/.oh-my-zsh/custom/themes/%s.zsh-theme", theme)
+				if err := copyToContainer(name, data, dest); err != nil {
+					return fmt.Errorf("copy custom theme: %w", err)
+				}
+				if err := exec.Command("docker", "exec", name, "chown", "agent:agent", dest).Run(); err != nil {
+					return fmt.Errorf("chown custom theme: %w", err)
+				}
+				fmt.Printf("  pushed custom theme → %s\n", dest)
+			}
+		}
+
 		fmt.Println("\nUpdate complete. Entrypoint & firewall changes take effect on next container restart.")
 		return nil
 	},
