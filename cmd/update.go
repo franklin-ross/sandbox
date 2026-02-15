@@ -60,7 +60,7 @@ var updateCmd = &cobra.Command{
 				if err := copyToContainer(name, data, dest); err != nil {
 					return fmt.Errorf("copy custom theme: %w", err)
 				}
-				if err := exec.Command("docker", "exec", name, "chown", "agent:agent", dest).Run(); err != nil {
+				if err := exec.Command("docker", "exec", "-u", "root", name, "chown", "agent:agent", dest).Run(); err != nil {
 					return fmt.Errorf("chown custom theme: %w", err)
 				}
 				fmt.Printf("  pushed custom theme → %s\n", dest)
