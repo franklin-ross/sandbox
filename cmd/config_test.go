@@ -311,17 +311,21 @@ func TestFirewallEntryValidation(t *testing.T) {
 }
 
 func TestGenerateFirewallRules(t *testing.T) {
-	t.Run("domains with default ports", func(t *testing.T) {
+	t.Run("domains resolve to iptables-restore format", func(t *testing.T) {
 		cfg := &SandboxConfig{
 			Firewall: FirewallConfig{
 				Allow: []FirewallEntry{
-					{Domain: "example.com"},
+					{Domain: "localhost"},
 				},
 			},
 		}
-		rules := string(generateFirewallRules(cfg))
-		if !strings.Contains(rules, `resolve_and_allow "example.com" 80 443`) {
-			t.Errorf("rules missing domain entry:\n%s", rules)
+		v4, _ := generateFirewallRules(cfg)
+		rules := string(v4)
+		if !strings.Contains(rules, "-A OUTPUT -d 127.0.0.1/32 -p tcp --dport 80 -j ACCEPT") {
+			t.Errorf("v4 rules missing localhost entry:\n%s", rules)
+		}
+		if !strings.Contains(rules, "-A OUTPUT -d 127.0.0.1/32 -p tcp --dport 443 -j ACCEPT") {
+			t.Errorf("v4 rules missing localhost port 443:\n%s", rules)
 		}
 	})
 
@@ -329,12 +333,13 @@ func TestGenerateFirewallRules(t *testing.T) {
 		cfg := &SandboxConfig{
 			Firewall: FirewallConfig{
 				Allow: []FirewallEntry{
-					{Domain: "example.com", Ports: []int{8080}},
+					{Domain: "localhost", Ports: []int{8080}},
 				},
 			},
 		}
-		rules := string(generateFirewallRules(cfg))
-		if !strings.Contains(rules, `resolve_and_allow "example.com" 8080`) {
+		v4, _ := generateFirewallRules(cfg)
+		rules := string(v4)
+		if !strings.Contains(rules, "-A OUTPUT -d 127.0.0.1/32 -p tcp --dport 8080 -j ACCEPT") {
 			t.Errorf("rules missing custom port entry:\n%s", rules)
 		}
 	})
@@ -347,8 +352,9 @@ func TestGenerateFirewallRules(t *testing.T) {
 				},
 			},
 		}
-		rules := string(generateFirewallRules(cfg))
-		if !strings.Contains(rules, "iptables -A OUTPUT -d 10.0.0.0/8 -j ACCEPT") {
+		v4, _ := generateFirewallRules(cfg)
+		rules := string(v4)
+		if !strings.Contains(rules, "-A OUTPUT -d 10.0.0.0/8 -j ACCEPT") {
 			t.Errorf("rules missing CIDR entry:\n%s", rules)
 		}
 	})
@@ -361,23 +367,47 @@ func TestGenerateFirewallRules(t *testing.T) {
 				},
 			},
 		}
-		rules := string(generateFirewallRules(cfg))
-		if !strings.Contains(rules, "iptables -A OUTPUT -d 10.0.0.0/8 -p tcp --dport 443") {
+		v4, _ := generateFirewallRules(cfg)
+		rules := string(v4)
+		if !strings.Contains(rules, "-A OUTPUT -d 10.0.0.0/8 -p tcp --dport 443") {
 			t.Errorf("rules missing CIDR port 443:\n%s", rules)
 		}
-		if !strings.Contains(rules, "iptables -A OUTPUT -d 10.0.0.0/8 -p tcp --dport 8080") {
+		if !strings.Contains(rules, "-A OUTPUT -d 10.0.0.0/8 -p tcp --dport 8080") {
 			t.Errorf("rules missing CIDR port 8080:\n%s", rules)
 		}
 	})
 
-	t.Run("empty config", func(t *testing.T) {
+	t.Run("empty config produces base rules and COMMIT", func(t *testing.T) {
 		cfg := &SandboxConfig{}
-		rules := string(generateFirewallRules(cfg))
-		if !strings.Contains(rules, "#!/bin/bash") {
-			t.Error("rules should start with shebang")
+		v4, v6 := generateFirewallRules(cfg)
+		for _, rules := range []string{string(v4), string(v6)} {
+			if !strings.Contains(rules, "*filter") {
+				t.Error("rules should contain *filter header")
+			}
+			if !strings.Contains(rules, "COMMIT") {
+				t.Error("rules should end with COMMIT")
+			}
 		}
-		if !strings.Contains(rules, "resolve_and_allow") {
-			t.Error("rules should contain helper function")
+		if !strings.Contains(string(v4), "icmp-port-unreachable") {
+			t.Error("v4 rules should use icmp-port-unreachable")
+		}
+		if !strings.Contains(string(v6), "icmp6-port-unreachable") {
+			t.Error("v6 rules should use icmp6-port-unreachable")
+		}
+	})
+
+	t.Run("v6 rules contain IPv6 addresses", func(t *testing.T) {
+		cfg := &SandboxConfig{
+			Firewall: FirewallConfig{
+				Allow: []FirewallEntry{
+					{Domain: "localhost"},
+				},
+			},
+		}
+		_, v6 := generateFirewallRules(cfg)
+		rules := string(v6)
+		if !strings.Contains(rules, "/128") {
+			t.Errorf("v6 rules should use /128 mask:\n%s", rules)
 		}
 	})
 }
@@ -462,8 +492,8 @@ func TestBuildSyncManifest(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if len(items) < 4 {
-			t.Fatalf("expected at least 4 items, got %d", len(items))
+		if len(items) < 5 {
+			t.Fatalf("expected at least 5 items, got %d", len(items))
 		}
 		if items[0].Dest != "/opt/entrypoint.sh" {
 			t.Errorf("item 0 dest = %q, want /opt/entrypoint.sh", items[0].Dest)
@@ -477,11 +507,14 @@ func TestBuildSyncManifest(t *testing.T) {
 		if items[2].Dest != "/opt/ao-firewall-rules.sh" {
 			t.Errorf("item 2 dest = %q, want /opt/ao-firewall-rules.sh", items[2].Dest)
 		}
-		if items[3].Dest != "/home/agent/.ao-env" {
-			t.Errorf("item 3 dest = %q, want /home/agent/.ao-env", items[3].Dest)
+		if items[3].Dest != "/opt/ao-firewall-rules6.sh" {
+			t.Errorf("item 3 dest = %q, want /opt/ao-firewall-rules6.sh", items[3].Dest)
 		}
-		if items[3].Owner != "agent:agent" {
-			t.Errorf("item 3 owner = %q, want agent:agent", items[3].Owner)
+		if items[4].Dest != "/home/agent/.ao-env" {
+			t.Errorf("item 4 dest = %q, want /home/agent/.ao-env", items[4].Dest)
+		}
+		if items[4].Owner != "agent:agent" {
+			t.Errorf("item 4 owner = %q, want agent:agent", items[4].Owner)
 		}
 	})
 

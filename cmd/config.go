@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"sort"
@@ -60,16 +61,14 @@ firewall:
   allow:
     # Claude API
     - domain: api.anthropic.com
-    - domain: api.claude.ai
     - domain: claude.ai
     - domain: statsig.anthropic.com
     - domain: sentry.io
 
-    # npm / yarn / bun / pnpm
+    # npm / yarn / pnpm
     - domain: registry.npmjs.org
     - domain: registry.yarnpkg.com
     - domain: repo.yarnpkg.com
-    - domain: registry.bun.sh
     - domain: registry.npmmirror.com
 
     # Go
@@ -122,7 +121,7 @@ func parseConfigFile(path string) (*SandboxConfig, error) {
 
 	var cfg SandboxConfig
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		fmt.Fprintf(os.Stderr, "sandbox: warning: failed to parse %s: %v\n", path, err)
+		fmt.Fprintf(os.Stderr, "warning: failed to parse %s: %v\n", path, err)
 		return &SandboxConfig{}, nil
 	}
 
@@ -143,9 +142,9 @@ func validateFirewallEntry(e FirewallEntry) bool {
 	hasCIDR := e.CIDR != ""
 	if hasDomain == hasCIDR {
 		if hasDomain {
-			fmt.Fprintf(os.Stderr, "sandbox: warning: firewall entry has both domain and cidr, skipping\n")
+			fmt.Fprintf(os.Stderr, "warning: firewall entry has both domain and cidr, skipping\n")
 		} else {
-			fmt.Fprintf(os.Stderr, "sandbox: warning: firewall entry has neither domain nor cidr, skipping\n")
+			fmt.Fprintf(os.Stderr, "warning: firewall entry has neither domain nor cidr, skipping\n")
 		}
 		return false
 	}
@@ -221,61 +220,111 @@ func mergeConfig(base, override *SandboxConfig) *SandboxConfig {
 	return result
 }
 
-func generateFirewallRules(cfg *SandboxConfig) []byte {
-	var b strings.Builder
-	b.WriteString("#!/bin/bash\n")
-	b.WriteString("# Generated firewall rules\n\n")
-
-	b.WriteString(`resolve_and_allow() {
-    local domain="$1"
-    shift
-    local ports=("$@")
-
-    local ips=$(dig +short "$domain" A 2>/dev/null | grep -E '^[0-9]' || true)
-    local cnames=$(dig +short "$domain" CNAME 2>/dev/null || true)
-
-    for cname in $cnames; do
-        local more_ips=$(dig +short "$cname" A 2>/dev/null | grep -E '^[0-9]' || true)
-        ips="$ips $more_ips"
-    done
-
-    for ip in $ips; do
-        for port in "${ports[@]}"; do
-            iptables -A OUTPUT -d "$ip" -p tcp --dport "$port" -j ACCEPT 2>/dev/null || true
-        done
-    done
+// resolvedEntry holds a firewall entry with its pre-resolved IPs split by family.
+type resolvedEntry struct {
+	v4    []string
+	v6    []string
+	ports []int
 }
 
-`)
-
+// resolveFirewallEntries resolves all domain entries and returns per-entry IP
+// lists. CIDR entries are returned as-is.
+func resolveFirewallEntries(cfg *SandboxConfig) (domains []resolvedEntry, cidrs []FirewallEntry) {
 	for _, e := range cfg.Firewall.Allow {
 		if e.Domain != "" {
 			ports := e.Ports
 			if len(ports) == 0 {
 				ports = []int{80, 443}
 			}
-			portArgs := make([]string, len(ports))
-			for i, p := range ports {
-				portArgs[i] = fmt.Sprintf("%d", p)
+			ips, err := net.LookupHost(e.Domain)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "warning: cannot resolve %s: %v\n", e.Domain, err)
+				continue
 			}
-			b.WriteString(fmt.Sprintf("resolve_and_allow %q %s\n", e.Domain, strings.Join(portArgs, " ")))
-		}
-	}
-
-	b.WriteString("\n# CIDR rules\n")
-	for _, e := range cfg.Firewall.Allow {
-		if e.CIDR != "" {
-			if len(e.Ports) == 0 {
-				b.WriteString(fmt.Sprintf("iptables -A OUTPUT -d %s -j ACCEPT 2>/dev/null || true\n", e.CIDR))
-			} else {
-				for _, p := range e.Ports {
-					b.WriteString(fmt.Sprintf("iptables -A OUTPUT -d %s -p tcp --dport %d -j ACCEPT 2>/dev/null || true\n", e.CIDR, p))
+			var re resolvedEntry
+			re.ports = ports
+			for _, ip := range ips {
+				parsed := net.ParseIP(ip)
+				if parsed == nil || parsed.IsUnspecified() {
+					continue
+				}
+				if parsed.To4() != nil {
+					re.v4 = append(re.v4, ip)
+				} else {
+					re.v6 = append(re.v6, ip)
 				}
 			}
+			domains = append(domains, re)
+		}
+		if e.CIDR != "" {
+			cidrs = append(cidrs, e)
+		}
+	}
+	return domains, cidrs
+}
+
+// writeRestoreRules writes an iptables-restore format ruleset for one address
+// family. isV6 controls the REJECT target (icmp vs icmp6).
+func writeRestoreRules(b *strings.Builder, domains []resolvedEntry, cidrs []FirewallEntry, isV6 bool) {
+	b.WriteString("*filter\n")
+	b.WriteString(":INPUT ACCEPT [0:0]\n")
+	b.WriteString(":FORWARD ACCEPT [0:0]\n")
+	b.WriteString(":OUTPUT ACCEPT [0:0]\n")
+
+	b.WriteString("-A OUTPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT\n")
+	b.WriteString("-A OUTPUT -o lo -j ACCEPT\n")
+	b.WriteString("-A OUTPUT -p udp --dport 53 -j ACCEPT\n")
+	b.WriteString("-A OUTPUT -p tcp --dport 53 -j ACCEPT\n")
+
+	mask := "/32"
+	if isV6 {
+		mask = "/128"
+	}
+
+	for _, re := range domains {
+		ips := re.v4
+		if isV6 {
+			ips = re.v6
+		}
+		for _, ip := range ips {
+			for _, port := range re.ports {
+				b.WriteString(fmt.Sprintf("-A OUTPUT -d %s%s -p tcp --dport %d -j ACCEPT\n", ip, mask, port))
+			}
 		}
 	}
 
-	return []byte(b.String())
+	for _, e := range cidrs {
+		if len(e.Ports) == 0 {
+			b.WriteString(fmt.Sprintf("-A OUTPUT -d %s -j ACCEPT\n", e.CIDR))
+		} else {
+			for _, p := range e.Ports {
+				b.WriteString(fmt.Sprintf("-A OUTPUT -d %s -p tcp --dport %d -j ACCEPT\n", e.CIDR, p))
+			}
+		}
+	}
+
+	reject := "icmp-port-unreachable"
+	if isV6 {
+		reject = "icmp6-port-unreachable"
+	}
+	b.WriteString(fmt.Sprintf("-A OUTPUT -j REJECT --reject-with %s\n", reject))
+	b.WriteString("COMMIT\n")
+}
+
+// generateFirewallRules resolves domain IPs on the host and produces an
+// iptables-restore format ruleset. iptables-restore applies all rules in a
+// single kernel call, so the firewall is never in a partial state — even if
+// the process is interrupted (ctrl+c), the old rules stay in place.
+func generateFirewallRules(cfg *SandboxConfig) (v4, v6 []byte) {
+	domains, cidrs := resolveFirewallEntries(cfg)
+
+	var b4 strings.Builder
+	writeRestoreRules(&b4, domains, cidrs, false)
+
+	var b6 strings.Builder
+	writeRestoreRules(&b6, domains, cidrs, true)
+
+	return []byte(b4.String()), []byte(b6.String())
 }
 
 func generateEnvFile(env map[string]string) []byte {
@@ -371,10 +420,17 @@ func buildSyncManifest(cfg *SandboxConfig) ([]SyncItem, error) {
 		Owner: "root:root",
 	})
 
-	// 3. Generated firewall rules
+	// 3. Generated firewall rules (IPv4 + IPv6)
+	v4Rules, v6Rules := generateFirewallRules(cfg)
 	items = append(items, SyncItem{
-		Data:  generateFirewallRules(cfg),
+		Data:  v4Rules,
 		Dest:  "/opt/ao-firewall-rules.sh",
+		Mode:  "0755",
+		Owner: "root:root",
+	})
+	items = append(items, SyncItem{
+		Data:  v6Rules,
+		Dest:  "/opt/ao-firewall-rules6.sh",
 		Mode:  "0755",
 		Owner: "root:root",
 	})
@@ -452,7 +508,7 @@ func buildSyncManifest(cfg *SandboxConfig) ([]SyncItem, error) {
 		for _, m := range matches {
 			data, err := os.ReadFile(m)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "sandbox: warning: cannot read %s: %v\n", m, err)
+				fmt.Fprintf(os.Stderr, "warning: cannot read %s: %v\n", m, err)
 				continue
 			}
 			d := dest

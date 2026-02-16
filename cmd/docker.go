@@ -12,7 +12,6 @@ import (
 	"regexp"
 	"sort"
 	"strings"
-	"time"
 )
 
 //go:embed image/Dockerfile
@@ -313,37 +312,22 @@ func syncContainer(name, wsPath string, force bool) error {
 	fmt.Println("Syncing sandbox...")
 
 	// Capture old firewall rules to detect changes
-	oldFirewall, _ := exec.Command("docker", "exec", name, "cat", "/opt/ao-firewall-rules.sh").Output()
+	oldV4, _ := exec.Command("docker", "exec", name, "cat", "/opt/ao-firewall-rules.sh").Output()
+	oldV6, _ := exec.Command("docker", "exec", name, "cat", "/opt/ao-firewall-rules6.sh").Output()
 
 	if err := syncItems(name, items); err != nil {
 		return err
 	}
 
-	// Re-run firewall if rules changed
-	newFirewallRules := generateFirewallRules(cfg)
-	if string(oldFirewall) != string(newFirewallRules) {
-		syncStatus("updating firewall rules...")
-		cmd := exec.Command("docker", "exec", "-u", "root", name, "/opt/init-firewall.sh")
-		done := make(chan error, 1)
-		go func() { done <- cmd.Run() }()
-
-		timer := time.NewTimer(3 * time.Second)
-		select {
-		case err := <-done:
-			timer.Stop()
+	// Re-apply firewall if rules changed (atomic via iptables-restore)
+	newV4, newV6 := generateFirewallRules(cfg)
+	if string(oldV4) != string(newV4) || string(oldV6) != string(newV6) {
+		syncStatus("applying firewall rules...")
+		if err := exec.Command("docker", "exec", "-u", "root", name, "/opt/init-firewall.sh").Run(); err != nil {
 			syncStatusDone()
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "sandbox: warning: firewall update failed: %v\n", err)
-			}
-		case <-timer.C:
-			syncStatus("resolving firewall domains...")
-			if err := <-done; err != nil {
-				syncStatusDone()
-				fmt.Fprintf(os.Stderr, "sandbox: warning: firewall update failed: %v\n", err)
-			} else {
-				syncStatusDone()
-			}
+			fmt.Fprintf(os.Stderr, "sandbox: warning: firewall update failed: %v\n", err)
 		}
+		syncStatusDone()
 	}
 
 	// Write sync hash
