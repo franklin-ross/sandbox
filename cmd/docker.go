@@ -2,9 +2,7 @@ package cmd
 
 import (
 	"bufio"
-	"crypto/sha256"
 	_ "embed"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -16,12 +14,6 @@ import (
 
 //go:embed image/Dockerfile
 var dockerfile []byte
-
-//go:embed image/init-firewall.sh
-var firewallScript []byte
-
-//go:embed image/entrypoint.sh
-var entrypointScript []byte
 
 var (
 	imageName = "ao-sandbox"
@@ -223,117 +215,4 @@ func resolvePath(p string) string {
 		os.Exit(1)
 	}
 	return abs
-}
-
-// copyToContainer writes data to a host temp file and docker-cp's it into the container.
-func copyToContainer(container string, data []byte, dest string) error {
-	tmp, err := os.CreateTemp("", "ao-sandbox-sync-*")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-
-	if err := os.WriteFile(tmp.Name(), data, 0755); err != nil {
-		return err
-	}
-	if err := os.Chmod(tmp.Name(), 0755); err != nil {
-		return err
-	}
-	tmp.Close()
-
-	return exec.Command("docker", "cp", tmp.Name(), container+":"+dest).Run()
-}
-
-// syncStatus prints a status line that overwrites itself.
-func syncStatus(msg string) {
-	fmt.Fprintf(os.Stderr, "\r\033[K  \033[2m%s\033[0m", msg)
-}
-
-// syncStatusDone clears the status line.
-func syncStatusDone() {
-	fmt.Fprintf(os.Stderr, "\r\033[K")
-}
-
-// syncItems copies each SyncItem into the container and sets ownership/permissions.
-func syncItems(container string, items []SyncItem) error {
-	for _, item := range items {
-		syncStatus(item.Dest)
-		dir := filepath.Dir(item.Dest)
-		if err := exec.Command("docker", "exec", "-u", "root", container, "mkdir", "-p", dir).Run(); err != nil {
-			syncStatusDone()
-			return fmt.Errorf("mkdir %s: %w", dir, err)
-		}
-		if err := copyToContainer(container, item.Data, item.Dest); err != nil {
-			syncStatusDone()
-			return fmt.Errorf("sync %s: %w", item.Dest, err)
-		}
-		if err := exec.Command("docker", "exec", "-u", "root", container, "chown", item.Owner, item.Dest).Run(); err != nil {
-			syncStatusDone()
-			return fmt.Errorf("chown %s: %w", item.Dest, err)
-		}
-		if err := exec.Command("docker", "exec", "-u", "root", container, "chmod", item.Mode, item.Dest).Run(); err != nil {
-			syncStatusDone()
-			return fmt.Errorf("chmod %s: %w", item.Dest, err)
-		}
-	}
-	syncStatusDone()
-	return nil
-}
-
-// syncContainer builds the sync manifest from config and pushes all items into
-// the container. It skips the sync when the computed hash matches the
-// container's /opt/ao-sync.sha256, unless force is true.
-func syncContainer(name, wsPath string, force bool) error {
-	cfg, err := loadConfig(wsPath)
-	if err != nil {
-		return err
-	}
-
-	items, err := buildSyncManifest(cfg)
-	if err != nil {
-		return fmt.Errorf("build sync manifest: %w", err)
-	}
-
-	// Compute hash over all sync items
-	h := sha256.New()
-	for _, item := range items {
-		h.Write(item.Data)
-		h.Write([]byte(item.Dest))
-	}
-	hash := hex.EncodeToString(h.Sum(nil))
-
-	if !force {
-		out, err := exec.Command("docker", "exec", name, "cat", "/opt/ao-sync.sha256").Output()
-		if err == nil && strings.TrimSpace(string(out)) == hash {
-			return nil
-		}
-	}
-
-	fmt.Println("Syncing sandbox...")
-
-	// Capture old firewall rules to detect changes
-	oldV4, _ := exec.Command("docker", "exec", name, "cat", "/opt/ao-firewall-rules.sh").Output()
-	oldV6, _ := exec.Command("docker", "exec", name, "cat", "/opt/ao-firewall-rules6.sh").Output()
-
-	if err := syncItems(name, items); err != nil {
-		return err
-	}
-
-	// Re-apply firewall if rules changed (atomic via iptables-restore)
-	newV4, newV6 := generateFirewallRules(cfg)
-	if string(oldV4) != string(newV4) || string(oldV6) != string(newV6) {
-		syncStatus("applying firewall rules...")
-		if err := exec.Command("docker", "exec", "-u", "root", name, "/opt/init-firewall.sh").Run(); err != nil {
-			syncStatusDone()
-			fmt.Fprintf(os.Stderr, "sandbox: warning: firewall update failed: %v\n", err)
-		}
-		syncStatusDone()
-	}
-
-	// Write sync hash
-	if err := exec.Command("docker", "exec", "-u", "root", name, "sh", "-c", fmt.Sprintf("echo %s > /opt/ao-sync.sha256", hash)).Run(); err != nil {
-		return fmt.Errorf("write sync hash: %w", err)
-	}
-
-	return nil
 }

@@ -492,8 +492,10 @@ func TestBuildSyncManifest(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		if len(items) < 5 {
-			t.Fatalf("expected at least 5 items, got %d", len(items))
+		// Firewall rules are synced separately (in parallel with DNS),
+		// so the manifest only has: entrypoint, firewall script, env.
+		if len(items) < 3 {
+			t.Fatalf("expected at least 3 items, got %d", len(items))
 		}
 		if items[0].Dest != "/opt/entrypoint.sh" {
 			t.Errorf("item 0 dest = %q, want /opt/entrypoint.sh", items[0].Dest)
@@ -504,17 +506,11 @@ func TestBuildSyncManifest(t *testing.T) {
 		if items[1].Dest != "/opt/init-firewall.sh" {
 			t.Errorf("item 1 dest = %q, want /opt/init-firewall.sh", items[1].Dest)
 		}
-		if items[2].Dest != "/opt/ao-firewall-rules.sh" {
-			t.Errorf("item 2 dest = %q, want /opt/ao-firewall-rules.sh", items[2].Dest)
+		if items[2].Dest != "/home/agent/.ao-env" {
+			t.Errorf("item 2 dest = %q, want /home/agent/.ao-env", items[2].Dest)
 		}
-		if items[3].Dest != "/opt/ao-firewall-rules6.sh" {
-			t.Errorf("item 3 dest = %q, want /opt/ao-firewall-rules6.sh", items[3].Dest)
-		}
-		if items[4].Dest != "/home/agent/.ao-env" {
-			t.Errorf("item 4 dest = %q, want /home/agent/.ao-env", items[4].Dest)
-		}
-		if items[4].Owner != "agent:agent" {
-			t.Errorf("item 4 owner = %q, want agent:agent", items[4].Owner)
+		if items[2].Owner != "agent:agent" {
+			t.Errorf("item 2 owner = %q, want agent:agent", items[2].Owner)
 		}
 	})
 
