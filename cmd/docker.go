@@ -121,6 +121,11 @@ func buildImage() error {
 func dockerExec(container, workdir string, cfg *SandboxConfig, args ...string) error {
 	cmdArgs := []string{"exec", "-it", "-w", workdir}
 
+	// Pass through TERM so colors work in the container shell
+	if term := os.Getenv("TERM"); term != "" {
+		cmdArgs = append(cmdArgs, "-e", "TERM="+term)
+	}
+
 	if cfg != nil && len(cfg.Env) > 0 {
 		keys := make([]string, 0, len(cfg.Env))
 		for k := range cfg.Env {
