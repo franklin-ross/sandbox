@@ -340,6 +340,10 @@ ZSH_THEME="%s"
 plugins=(git npm yarn golang rust)
 source $ZSH/oh-my-zsh.sh
 
+# Files on the host in ~/.ao/sandbox/home/bin/ are synced to ~/bin
+# in the container on start. They need to be linux binaries to run.
+export PATH="$HOME/bin:$PATH"
+
 # Tool completions
 eval "$(task --completion zsh)"
 

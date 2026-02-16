@@ -41,7 +41,7 @@ var configInitCmd = &cobra.Command{
 		if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
 			return fmt.Errorf("create config directory: %w", err)
 		}
-		if err := os.MkdirAll(homePath, 0755); err != nil {
+		if err := os.MkdirAll(filepath.Join(homePath, "bin"), 0755); err != nil {
 			return fmt.Errorf("create home directory: %w", err)
 		}
 
