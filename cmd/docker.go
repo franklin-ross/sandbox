@@ -4,14 +4,15 @@ import (
 	"bufio"
 	"crypto/sha256"
 	_ "embed"
-	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
+	"time"
 )
 
 //go:embed image/Dockerfile
@@ -23,9 +24,6 @@ var firewallScript []byte
 //go:embed image/entrypoint.sh
 var entrypointScript []byte
 
-//go:embed image/workflow-linux
-var workflowBinary []byte
-
 var (
 	imageName = "ao-sandbox"
 	credsVol  = "ao-sandbox-creds"
@@ -33,12 +31,11 @@ var (
 	labelWs   = "ao.workspace"
 )
 
-func ensureRunning(wsPath string) (string, error) {
+// ensureStarted makes sure the container is running, creating or restarting it
+// as needed. It does NOT sync — callers handle that.
+func ensureStarted(wsPath string) (string, error) {
 	name := containerName(wsPath)
 	if isRunning(name) {
-		if err := syncContainer(name, false); err != nil {
-			return "", err
-		}
 		return name, nil
 	}
 
@@ -47,9 +44,6 @@ func ensureRunning(wsPath string) (string, error) {
 		fmt.Printf("Restarting sandbox for %s...\n", wsPath)
 		if err := dockerRun("start", name); err != nil {
 			return "", fmt.Errorf("restart container: %w", err)
-		}
-		if err := syncContainer(name, false); err != nil {
-			return "", err
 		}
 		return name, nil
 	}
@@ -75,7 +69,16 @@ func ensureRunning(wsPath string) (string, error) {
 		return "", fmt.Errorf("start container: %w", err)
 	}
 
-	if err := syncContainer(name, false); err != nil {
+	return name, nil
+}
+
+// ensureRunning starts the container if needed and syncs files into it.
+func ensureRunning(wsPath string) (string, error) {
+	name, err := ensureStarted(wsPath)
+	if err != nil {
+		return "", err
+	}
+	if err := syncContainer(name, wsPath, false); err != nil {
 		return "", err
 	}
 	return name, nil
@@ -106,19 +109,7 @@ func buildImage() error {
 		return err
 	}
 
-	buildArgs := []string{"build", "-t", imageName}
-	if theme := zshTheme(); theme != "" {
-		buildArgs = append(buildArgs, "--build-arg", "ZSH_THEME="+theme)
-		if tp := customThemePath(theme); tp != "" {
-			data, err := os.ReadFile(tp)
-			if err != nil {
-				return fmt.Errorf("read custom theme: %w", err)
-			}
-			buildArgs = append(buildArgs, "--build-arg", "CUSTOM_THEME="+base64.StdEncoding.EncodeToString(data))
-		}
-	}
-	buildArgs = append(buildArgs, dir)
-	cmd := exec.Command("docker", buildArgs...)
+	cmd := exec.Command("docker", "build", "-t", imageName, dir)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -127,8 +118,32 @@ func buildImage() error {
 	return nil
 }
 
-func dockerExec(container, workdir string, args ...string) error {
-	cmdArgs := append([]string{"exec", "-it", "-w", workdir, container}, args...)
+func dockerExec(container, workdir string, cfg *SandboxConfig, args ...string) error {
+	cmdArgs := []string{"exec", "-it", "-w", workdir}
+
+	if cfg != nil && len(cfg.Env) > 0 {
+		keys := make([]string, 0, len(cfg.Env))
+		for k := range cfg.Env {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+
+		for _, k := range keys {
+			v := cfg.Env[k]
+			if strings.HasPrefix(v, "$") {
+				expanded := os.Getenv(v[1:])
+				if expanded == "" {
+					continue
+				}
+				v = expanded
+			}
+			cmdArgs = append(cmdArgs, "-e", k+"="+v)
+		}
+	}
+
+	cmdArgs = append(cmdArgs, container)
+	cmdArgs = append(cmdArgs, args...)
+
 	cmd := exec.Command("docker", cmdArgs...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -197,18 +212,6 @@ func zshTheme() string {
 	return ""
 }
 
-func customThemePath(theme string) string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	p := filepath.Join(home, ".oh-my-zsh", "custom", "themes", theme+".zsh-theme")
-	if _, err := os.Stat(p); err != nil {
-		return ""
-	}
-	return p
-}
-
 func resolvePath(p string) string {
 	abs, err := filepath.Abs(p)
 	if err != nil {
@@ -237,30 +240,63 @@ func copyToContainer(container string, data []byte, dest string) error {
 	return exec.Command("docker", "cp", tmp.Name(), container+":"+dest).Run()
 }
 
-// syncHash computes a SHA-256 hash of all content that syncContainer pushes
-// into the sandbox: workflow binary, entrypoint, firewall, ZSH theme config,
-// and any custom theme file.
-func syncHash() string {
-	h := sha256.New()
-	h.Write(workflowBinary)
-	h.Write(entrypointScript)
-	h.Write(firewallScript)
-	theme := zshTheme()
-	h.Write([]byte(theme))
-	if theme != "" {
-		if tp := customThemePath(theme); tp != "" {
-			data, _ := os.ReadFile(tp)
-			h.Write(data)
-		}
-	}
-	return hex.EncodeToString(h.Sum(nil))
+// syncStatus prints a status line that overwrites itself.
+func syncStatus(msg string) {
+	fmt.Fprintf(os.Stderr, "\r\033[K  \033[2m%s\033[0m", msg)
 }
 
-// syncContainer pushes the workflow binary, entrypoint, firewall script, and
-// ZSH theme into a running container. It skips the sync when the container's
-// /opt/ao-sync.sha256 already matches the current hash, unless force is true.
-func syncContainer(name string, force bool) error {
-	hash := syncHash()
+// syncStatusDone clears the status line.
+func syncStatusDone() {
+	fmt.Fprintf(os.Stderr, "\r\033[K")
+}
+
+// syncItems copies each SyncItem into the container and sets ownership/permissions.
+func syncItems(container string, items []SyncItem) error {
+	for _, item := range items {
+		syncStatus(item.Dest)
+		dir := filepath.Dir(item.Dest)
+		if err := exec.Command("docker", "exec", "-u", "root", container, "mkdir", "-p", dir).Run(); err != nil {
+			syncStatusDone()
+			return fmt.Errorf("mkdir %s: %w", dir, err)
+		}
+		if err := copyToContainer(container, item.Data, item.Dest); err != nil {
+			syncStatusDone()
+			return fmt.Errorf("sync %s: %w", item.Dest, err)
+		}
+		if err := exec.Command("docker", "exec", "-u", "root", container, "chown", item.Owner, item.Dest).Run(); err != nil {
+			syncStatusDone()
+			return fmt.Errorf("chown %s: %w", item.Dest, err)
+		}
+		if err := exec.Command("docker", "exec", "-u", "root", container, "chmod", item.Mode, item.Dest).Run(); err != nil {
+			syncStatusDone()
+			return fmt.Errorf("chmod %s: %w", item.Dest, err)
+		}
+	}
+	syncStatusDone()
+	return nil
+}
+
+// syncContainer builds the sync manifest from config and pushes all items into
+// the container. It skips the sync when the computed hash matches the
+// container's /opt/ao-sync.sha256, unless force is true.
+func syncContainer(name, wsPath string, force bool) error {
+	cfg, err := loadConfig(wsPath)
+	if err != nil {
+		return err
+	}
+
+	items, err := buildSyncManifest(cfg)
+	if err != nil {
+		return fmt.Errorf("build sync manifest: %w", err)
+	}
+
+	// Compute hash over all sync items
+	h := sha256.New()
+	for _, item := range items {
+		h.Write(item.Data)
+		h.Write([]byte(item.Dest))
+	}
+	hash := hex.EncodeToString(h.Sum(nil))
 
 	if !force {
 		out, err := exec.Command("docker", "exec", name, "cat", "/opt/ao-sync.sha256").Output()
@@ -271,36 +307,41 @@ func syncContainer(name string, force bool) error {
 
 	fmt.Println("Syncing sandbox...")
 
-	if err := copyToContainer(name, workflowBinary, "/usr/local/bin/workflow"); err != nil {
-		return fmt.Errorf("sync workflow binary: %w", err)
-	}
-	if err := copyToContainer(name, entrypointScript, "/opt/entrypoint.sh"); err != nil {
-		return fmt.Errorf("sync entrypoint: %w", err)
-	}
-	if err := copyToContainer(name, firewallScript, "/opt/init-firewall.sh"); err != nil {
-		return fmt.Errorf("sync firewall script: %w", err)
+	// Capture old firewall rules to detect changes
+	oldFirewall, _ := exec.Command("docker", "exec", name, "cat", "/opt/ao-firewall-rules.sh").Output()
+
+	if err := syncItems(name, items); err != nil {
+		return err
 	}
 
-	if theme := zshTheme(); theme != "" {
-		sedCmd := fmt.Sprintf(`s/^ZSH_THEME=.*/ZSH_THEME="%s"/`, theme)
-		if err := exec.Command("docker", "exec", name, "sed", "-i", sedCmd, "/home/agent/.zshrc").Run(); err != nil {
-			return fmt.Errorf("sync ZSH_THEME: %w", err)
-		}
-		if tp := customThemePath(theme); tp != "" {
-			data, err := os.ReadFile(tp)
+	// Re-run firewall if rules changed
+	newFirewallRules := generateFirewallRules(cfg)
+	if string(oldFirewall) != string(newFirewallRules) {
+		syncStatus("updating firewall rules...")
+		cmd := exec.Command("docker", "exec", "-u", "root", name, "/opt/init-firewall.sh")
+		done := make(chan error, 1)
+		go func() { done <- cmd.Run() }()
+
+		timer := time.NewTimer(3 * time.Second)
+		select {
+		case err := <-done:
+			timer.Stop()
+			syncStatusDone()
 			if err != nil {
-				return fmt.Errorf("read custom theme: %w", err)
+				fmt.Fprintf(os.Stderr, "sandbox: warning: firewall update failed: %v\n", err)
 			}
-			dest := fmt.Sprintf("/home/agent/.oh-my-zsh/custom/themes/%s.zsh-theme", theme)
-			if err := copyToContainer(name, data, dest); err != nil {
-				return fmt.Errorf("sync custom theme: %w", err)
-			}
-			if err := exec.Command("docker", "exec", "-u", "root", name, "chown", "agent:agent", dest).Run(); err != nil {
-				return fmt.Errorf("chown custom theme: %w", err)
+		case <-timer.C:
+			syncStatus("resolving firewall domains...")
+			if err := <-done; err != nil {
+				syncStatusDone()
+				fmt.Fprintf(os.Stderr, "sandbox: warning: firewall update failed: %v\n", err)
+			} else {
+				syncStatusDone()
 			}
 		}
 	}
 
+	// Write sync hash
 	if err := exec.Command("docker", "exec", "-u", "root", name, "sh", "-c", fmt.Sprintf("echo %s > /opt/ao-sync.sha256", hash)).Run(); err != nil {
 		return fmt.Errorf("write sync hash: %w", err)
 	}

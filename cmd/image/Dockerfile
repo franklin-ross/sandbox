@@ -34,6 +34,11 @@ ENV PATH="/usr/local/go/bin:${PATH}"
 # Task runner (https://taskfile.dev)
 RUN sh -c "$(curl -fsSL https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
 
+# Chromium for headless testing
+RUN apt-get update && apt-get install -y chromium-browser --no-install-recommends && rm -rf /var/lib/apt/lists/*
+ENV CHROME_BIN=/usr/bin/chromium-browser
+ENV CHROMIUM_BIN=/usr/bin/chromium-browser
+
 # Non-root user
 RUN useradd -m -s /bin/zsh agent \
     && echo "agent ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
@@ -52,16 +57,8 @@ ENV GOPATH="/home/agent/go"
 ENV PATH="${GOPATH}/bin:${PATH}"
 RUN mkdir -p /home/agent/go
 
-ARG ZSH_THEME=robbyrussell
-ARG CUSTOM_THEME=
-
-# Oh My Zsh + plugins
-RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended \
-    && sed -i 's/^plugins=(git)/plugins=(git npm yarn golang rust)/' /home/agent/.zshrc \
-    && echo 'eval "$(task --completion zsh)"' >> /home/agent/.zshrc \
-    && echo 'eval "$(workflow completion zsh)"' >> /home/agent/.zshrc \
-    && sed -i "s/^ZSH_THEME=.*/ZSH_THEME=\"$ZSH_THEME\"/" /home/agent/.zshrc \
-    && if [ -n "$CUSTOM_THEME" ]; then echo "$CUSTOM_THEME" | base64 -d > /home/agent/.oh-my-zsh/custom/themes/$ZSH_THEME.zsh-theme; fi
+# Oh My Zsh (config init writes .zshrc to ~/.ao/sandbox/home/, synced at start)
+RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
 
 # Firewall + entrypoint
 USER root

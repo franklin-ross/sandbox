@@ -68,17 +68,25 @@ func overrideEmbeddedFiles(t *testing.T) {
 	origDockerfile := dockerfile
 	origFirewall := firewallScript
 	origEntrypoint := entrypointScript
-	origWorkflow := workflowBinary
 	dockerfile = []byte(testDockerfile)
 	firewallScript = []byte("#!/bin/sh\n")
 	entrypointScript = []byte("#!/bin/sh\nexec \"$@\"\n")
-	workflowBinary = []byte("#!/bin/sh\n")
 	t.Cleanup(func() {
 		dockerfile = origDockerfile
 		firewallScript = origFirewall
 		entrypointScript = origEntrypoint
-		workflowBinary = origWorkflow
 	})
+}
+
+// useTestConfig creates a minimal sandbox config in a temp HOME so that
+// loadConfig succeeds during integration tests.
+func useTestConfig(t *testing.T) {
+	t.Helper()
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+	configDir := tmpHome + "/.ao/sandbox"
+	os.MkdirAll(configDir, 0755)
+	os.WriteFile(configDir+"/config.yaml", []byte("sync: []\nenv: {}\nfirewall:\n  allow: []\n"), 0644)
 }
 
 // removeContainer removes a container by name, ignoring errors.
@@ -171,6 +179,7 @@ func TestEnsureRunningIdempotent(t *testing.T) {
 	requireDocker(t)
 	useTestImage(t)
 	buildTestImage(t)
+	useTestConfig(t)
 
 	wsPath := t.TempDir()
 	name := containerName(wsPath)
@@ -260,6 +269,7 @@ func TestEnsureRunningRestartsStoppedContainer(t *testing.T) {
 	requireDocker(t)
 	useTestImage(t)
 	buildTestImage(t)
+	useTestConfig(t)
 
 	wsPath := t.TempDir()
 	name := containerName(wsPath)

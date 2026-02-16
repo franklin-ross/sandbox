@@ -32,9 +32,13 @@ Examples:
 			return err
 		}
 
+		cfg, err := loadConfig(wsPath)
+		if err != nil {
+			return err
+		}
 		execArgs := []string{"claude", "--dangerously-skip-permissions"}
 		execArgs = append(execArgs, claudeArgs...)
-		return dockerExec(name, wsPath, execArgs...)
+		return dockerExec(name, wsPath, cfg, execArgs...)
 	},
 }
 

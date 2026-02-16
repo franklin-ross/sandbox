@@ -81,19 +81,19 @@ Your credentials are stored in a persistent Docker volume (`ao-sandbox-creds`) s
 - Claude Code CLI
 - ripgrep, jq, fzf, tmux, git
 
-## Network whitelist
+## Network allowlist
 
 The firewall allows outbound traffic to:
 
-| Service    | Domains                                                  |
-| ---------- | -------------------------------------------------------- |
-| Claude API | api.anthropic.com, api.claude.ai, claude.ai              |
+| Service                 | Domains                                                                           |
+| ----------------------- | --------------------------------------------------------------------------------- |
+| Claude API              | api.anthropic.com, api.claude.ai, claude.ai                                       |
 | npm / Yarn / Bun / pnpm | registry.npmjs.org, registry.yarnpkg.com, registry.bun.sh, registry.npmmirror.com |
-| Go         | proxy.golang.org, sum.golang.org, storage.googleapis.com |
-| Rust       | crates.io, static.crates.io, static.rust-lang.org        |
-| Ruby       | rubygems.org                                             |
-| PyPI       | pypi.org, files.pythonhosted.org                         |
-| GitHub     | github.com, api.github.com, \*.githubusercontent.com     |
+| Go                      | proxy.golang.org, sum.golang.org, storage.googleapis.com                          |
+| Rust                    | crates.io, static.crates.io, static.rust-lang.org                                 |
+| Ruby                    | rubygems.org                                                                      |
+| PyPI                    | pypi.org, files.pythonhosted.org                                                  |
+| GitHub                  | github.com, api.github.com, \*.githubusercontent.com                              |
 
 Everything else is blocked. DNS is allowed so domains can be resolved at container start time.
 

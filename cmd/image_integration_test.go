@@ -135,8 +135,12 @@ func TestImageIntegration(t *testing.T) {
 		}
 	})
 
-	t.Run("workflow binary", func(t *testing.T) {
-		execInContainer(t, ctr, "test", "-x", "/usr/local/bin/workflow")
+	t.Run("chromium", func(t *testing.T) {
+		// chromium-browser or chromium depending on Ubuntu version
+		out := execInContainer(t, ctr, "sh", "-c", "test -x /usr/bin/chromium-browser && echo ok || test -x /usr/bin/chromium && echo ok")
+		if out != "ok" {
+			t.Error("chromium not found")
+		}
 	})
 
 	t.Run("firewall script", func(t *testing.T) {

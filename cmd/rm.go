@@ -22,7 +22,12 @@ var rmCmd = &cobra.Command{
 
 		name := containerName(wsPath)
 		if containerExists(name) {
-			if err := dockerRun("rm", "-f", name); err != nil {
+			if isRunning(name) {
+				if err := dockerRun("stop", name); err != nil {
+					return fmt.Errorf("stop container: %w", err)
+				}
+			}
+			if err := dockerRun("rm", name); err != nil {
 				return fmt.Errorf("remove container: %w", err)
 			}
 			fmt.Printf("Sandbox %s removed\n", name)

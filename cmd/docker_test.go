@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -129,32 +128,6 @@ func TestBuildImageWritesFiles(t *testing.T) {
 	}
 }
 
-func TestSyncHash(t *testing.T) {
-	// Hash must be deterministic.
-	h1 := syncHash()
-	h2 := syncHash()
-	if h1 != h2 {
-		t.Fatalf("syncHash not deterministic: %q vs %q", h1, h2)
-	}
-
-	// Must be a valid hex-encoded SHA-256 (64 hex chars).
-	if _, err := hex.DecodeString(h1); err != nil {
-		t.Fatalf("syncHash returned invalid hex: %q", h1)
-	}
-	if len(h1) != 64 {
-		t.Fatalf("syncHash length = %d, want 64", len(h1))
-	}
-
-	// Hash must change when embedded content changes.
-	orig := workflowBinary
-	workflowBinary = append(workflowBinary, 0xFF)
-	h3 := syncHash()
-	workflowBinary = orig
-	if h3 == h1 {
-		t.Fatal("syncHash did not change after modifying workflowBinary")
-	}
-}
-
 func TestNoDockerInDocker(t *testing.T) {
 	dfContent := string(dockerfile)
 
@@ -192,4 +165,3 @@ func TestNoDockerInDocker(t *testing.T) {
 		t.Error("docker.go must not use --privileged — it enables Docker-in-Docker and full host access")
 	}
 }
-
