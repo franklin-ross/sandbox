@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"bufio"
+	"crypto/sha256"
 	_ "embed"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -26,6 +28,11 @@ var (
 // as needed. It does NOT sync — callers handle that.
 func ensureStarted(wsPath string) (string, error) {
 	name := containerName(wsPath)
+
+	if isRunning(name) || containerExists(name) {
+		warnIfStale(name)
+	}
+
 	if isRunning(name) {
 		return name, nil
 	}
@@ -50,7 +57,6 @@ func ensureStarted(wsPath string) (string, error) {
 		"--label", labelSel,
 		"--label", labelWs+"="+wsPath,
 		"--cap-add", "NET_ADMIN",
-		"-e", fmt.Sprintf("HOST_UID=%d", os.Getuid()),
 		"-v", credsVol+":/home/agent/.claude",
 		"-v", wsPath+":"+wsPath,
 		"-w", wsPath,
@@ -73,18 +79,37 @@ func ensureRunning(wsPath string) (string, error) {
 	if err := syncContainer(name, wsPath, false); err != nil {
 		return "", err
 	}
+	fmt.Println("Sandbox ready")
 	return name, nil
 }
 
-func ensureImage() error {
-	if imageExists() {
-		return nil
-	}
-	fmt.Println("Building sandbox image (first time)...")
-	return buildImage()
+// imageHash returns a hash of all inputs that affect the built image.
+func imageHash() string {
+	h := sha256.New()
+	h.Write(dockerfile)
+	h.Write(firewallScript)
+	h.Write(entrypointScript)
+	h.Write([]byte(fmt.Sprintf("uid=%d", os.Getuid())))
+	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 
-func buildImage() error {
+func ensureImage() error {
+	hash := imageHash()
+	if imageExists() {
+		// Check if the image was built from the same inputs.
+		out, err := exec.Command("docker", "inspect", "-f",
+			`{{index .Config.Labels "ao.image.hash"}}`, imageName).Output()
+		if err == nil && strings.TrimSpace(string(out)) == hash {
+			return nil
+		}
+		fmt.Println("Sandbox image outdated, rebuilding...")
+	} else {
+		fmt.Println("Building sandbox image (first time)...")
+	}
+	return buildImage(hash)
+}
+
+func buildImage(hash string) error {
 	dir, err := os.MkdirTemp("", "ao-sandbox-build-*")
 	if err != nil {
 		return fmt.Errorf("mkdtemp: %w", err)
@@ -101,10 +126,31 @@ func buildImage() error {
 		return err
 	}
 
-	cmd := exec.Command("docker", "build", "-t", imageName, dir)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	cmd := exec.Command("docker", "build",
+		"--progress=plain",
+		"--build-arg", fmt.Sprintf("HOST_UID=%d", os.Getuid()),
+		"--label", "ao.image.hash="+hash,
+		"-t", imageName, dir)
+
+	// Show build progress as a single updating status line.
+	// Docker build with --progress=plain outputs steps to stderr.
+	stdout, _ := cmd.StdoutPipe()
+	stderr, _ := cmd.StderrPipe()
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("docker build: %w", err)
+	}
+	go func() {
+		s := bufio.NewScanner(stdout)
+		for s.Scan() {
+			showBuildStep(s.Text())
+		}
+	}()
+	s := bufio.NewScanner(stderr)
+	for s.Scan() {
+		showBuildStep(s.Text())
+	}
+	syncStatusDone()
+	if err := cmd.Wait(); err != nil {
 		return fmt.Errorf("docker build: %w", err)
 	}
 	return nil
@@ -153,6 +199,46 @@ func dockerExec(container, workdir string, cfg *SandboxConfig, args ...string) e
 		return fmt.Errorf("exec: %w", err)
 	}
 	return nil
+}
+
+
+// buildStepRe matches Docker build step lines like "#8 0.123 ..." or "#8 RUN ..."
+var buildStepRe = regexp.MustCompile(`^#\d+\s+(?:\d+\.\d+\s+)?(.+)`)
+
+// ansiRe strips ANSI escape sequences (cursor moves, clears, colors, etc.)
+var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07|\x1bc`)
+
+// showBuildStep parses a Docker build output line and shows a condensed status.
+func showBuildStep(line string) {
+	line = ansiRe.ReplaceAllString(line, "")
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return
+	}
+	// Show RUN/COPY/FROM commands as the status
+	if m := buildStepRe.FindStringSubmatch(line); m != nil {
+		text := m[1]
+		// Truncate long lines
+		if len(text) > 72 {
+			text = text[:72] + "..."
+		}
+		syncStatus(text)
+	}
+}
+
+// warnIfStale prints a warning if the container was created from an older image.
+func warnIfStale(container string) {
+	ctrImage, err := exec.Command("docker", "inspect", "-f", "{{.Image}}", container).Output()
+	if err != nil {
+		return
+	}
+	imgID, err := exec.Command("docker", "inspect", "-f", "{{.Id}}", imageName).Output()
+	if err != nil {
+		return
+	}
+	if strings.TrimSpace(string(ctrImage)) != strings.TrimSpace(string(imgID)) {
+		fmt.Fprintf(os.Stderr, "warning: this project is using an outdated container. To update, run `sandbox rm <folder>` and then restart.\n")
+	}
 }
 
 func isRunning(name string) bool {

@@ -12,7 +12,7 @@ var buildCmd = &cobra.Command{
 	Args:  cobra.NoArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		fmt.Println("Building sandbox image...")
-		if err := buildImage(); err != nil {
+		if err := buildImage(imageHash()); err != nil {
 			return err
 		}
 		fmt.Println("Done.")

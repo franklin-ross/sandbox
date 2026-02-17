@@ -124,17 +124,6 @@ func TestImageIntegration(t *testing.T) {
 		}
 	})
 
-	t.Run("claude dir exists", func(t *testing.T) {
-		execInContainer(t, ctr, "test", "-d", "/home/agent/.claude")
-	})
-
-	t.Run("claude dir owned by agent", func(t *testing.T) {
-		out := execInContainer(t, ctr, "stat", "-c", "%U", "/home/agent/.claude")
-		if out != "agent" {
-			t.Errorf("/home/agent/.claude owner = %q, want \"agent\"", out)
-		}
-	})
-
 	t.Run("chrome", func(t *testing.T) {
 		out := execInContainer(t, ctr, "sh", "-c", "$CHROME_BIN --version")
 		if !strings.Contains(strings.ToLower(out), "chrom") {

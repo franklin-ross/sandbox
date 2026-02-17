@@ -49,7 +49,9 @@ func buildTestImage(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cmd := exec.Command("docker", "build", "-t", testImageName, dir)
+	cmd := exec.Command("docker", "build",
+		"--label", "ao.image.hash="+imageHash(),
+		"-t", testImageName, dir)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
@@ -178,14 +180,13 @@ func TestContainerLifecycle(t *testing.T) {
 func TestEnsureRunningIdempotent(t *testing.T) {
 	requireDocker(t)
 	useTestImage(t)
+	overrideEmbeddedFiles(t)
 	buildTestImage(t)
 	useTestConfig(t)
 
 	wsPath := t.TempDir()
 	name := containerName(wsPath)
 	removeContainer(t, name)
-
-	overrideEmbeddedFiles(t)
 
 	// First call should start
 	got, err := ensureRunning(wsPath)
@@ -268,14 +269,13 @@ func TestContainerWorkspaceMount(t *testing.T) {
 func TestEnsureRunningRestartsStoppedContainer(t *testing.T) {
 	requireDocker(t)
 	useTestImage(t)
+	overrideEmbeddedFiles(t)
 	buildTestImage(t)
 	useTestConfig(t)
 
 	wsPath := t.TempDir()
 	name := containerName(wsPath)
 	removeContainer(t, name)
-
-	overrideEmbeddedFiles(t)
 
 	// Start a container, write a marker file, then stop it
 	err := dockerRun("run", "-d",

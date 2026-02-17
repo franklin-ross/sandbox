@@ -40,8 +40,9 @@ ENV CHROMIUM_BIN=/usr/bin/chromium
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV PUPPETEER_SKIP_DOWNLOAD=true
 
-# Non-root user
-RUN useradd -m -s /bin/zsh agent \
+# Non-root user (UID matches host so bind-mounted files have correct ownership)
+ARG HOST_UID=1000
+RUN useradd -m -s /bin/zsh -u ${HOST_UID} agent \
     && echo "agent ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 USER agent
 
