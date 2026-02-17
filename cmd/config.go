@@ -92,6 +92,7 @@ firewall:
 
     # GitHub
     - domain: github.com
+      ports: [22, 80, 443]
     - domain: api.github.com
     - domain: raw.githubusercontent.com
     - domain: objects.githubusercontent.com
