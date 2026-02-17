@@ -11,5 +11,6 @@ if [ -n "${HOST_UID:-}" ] && [ "$HOST_UID" != "$(id -u)" ]; then
 fi
 
 mkdir -p /home/agent/.claude
+sudo chown -R agent:agent /home/agent/.claude
 
 exec "$@"
