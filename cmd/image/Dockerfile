@@ -1,4 +1,4 @@
-FROM ubuntu:24.04
+FROM debian:bookworm
 
 ARG NODE_VERSION=22
 ARG GO_VERSION=1.23.6
@@ -15,9 +15,10 @@ RUN apt-get update && apt-get install -y \
     build-essential pkg-config libssl-dev \
     ca-certificates gnupg \
     iptables dnsutils iproute2 \
+    chromium \
     python3 python3-pip python3-venv \
     ruby ruby-dev \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/cache/apt/archives/* /var/lib/apt/lists/*
 
 # Node.js via NodeSource
 RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash - \
@@ -34,10 +35,10 @@ ENV PATH="/usr/local/go/bin:${PATH}"
 # Task runner (https://taskfile.dev)
 RUN sh -c "$(curl -fsSL https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
 
-# Chromium for headless testing
-RUN apt-get update && apt-get install -y chromium-browser --no-install-recommends && rm -rf /var/lib/apt/lists/*
-ENV CHROME_BIN=/usr/bin/chromium-browser
-ENV CHROMIUM_BIN=/usr/bin/chromium-browser
+ENV CHROME_BIN=/usr/bin/chromium
+ENV CHROMIUM_BIN=/usr/bin/chromium
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 
 # Non-root user
 RUN useradd -m -s /bin/zsh agent \

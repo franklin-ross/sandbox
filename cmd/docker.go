@@ -50,6 +50,7 @@ func ensureStarted(wsPath string) (string, error) {
 		"--label", labelSel,
 		"--label", labelWs+"="+wsPath,
 		"--cap-add", "NET_ADMIN",
+		"-e", fmt.Sprintf("HOST_UID=%d", os.Getuid()),
 		"-v", credsVol+":/home/agent/.claude",
 		"-v", wsPath+":"+wsPath,
 		"-w", wsPath,

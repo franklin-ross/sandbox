@@ -107,6 +107,10 @@ firewall:
     # Cypress
     - domain: download.cypress.io
     - domain: cdn.cypress.io
+
+    # Playwright
+    - domain: cdn.playwright.dev
+    - domain: playwright.download.prss.microsoft.com
 `
 
 func parseConfigFile(path string) (*SandboxConfig, error) {

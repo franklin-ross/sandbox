@@ -135,11 +135,10 @@ func TestImageIntegration(t *testing.T) {
 		}
 	})
 
-	t.Run("chromium", func(t *testing.T) {
-		// chromium-browser or chromium depending on Ubuntu version
-		out := execInContainer(t, ctr, "sh", "-c", "test -x /usr/bin/chromium-browser && echo ok || test -x /usr/bin/chromium && echo ok")
-		if out != "ok" {
-			t.Error("chromium not found")
+	t.Run("chrome", func(t *testing.T) {
+		out := execInContainer(t, ctr, "sh", "-c", "$CHROME_BIN --version")
+		if !strings.Contains(strings.ToLower(out), "chrom") {
+			t.Errorf("unexpected browser version output: %q", out)
 		}
 	})
 

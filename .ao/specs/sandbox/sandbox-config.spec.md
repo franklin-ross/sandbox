@@ -192,6 +192,7 @@ If `ports` is specified, traffic is restricted to those ports. If
 | PyPI | `pypi.org`, `files.pythonhosted.org` |
 | GitHub | `github.com`, `api.github.com`, `raw.githubusercontent.com`, `objects.githubusercontent.com`, `codeload.github.com`, `pkg-containers.githubusercontent.com`, `ghcr.io` |
 | Cypress | `download.cypress.io`, `cdn.cypress.io` |
+| Playwright | `cdn.playwright.dev`, `playwright.download.prss.microsoft.com` |
 | CDNs | `cdn.jsdelivr.net`, `dl-cdn.alpinelinux.org`, `deb.nodesource.com` |
 
 ### Change lifecycle
@@ -281,12 +282,12 @@ explicit sync rules.
 
 The sandbox image includes Chromium for headless testing with Karma,
 Cypress, and Storybook. The `CHROME_BIN` and `CHROMIUM_BIN` environment
-variables are set to `/usr/bin/chromium-browser` so test runners
-auto-detect the browser.
+variables are set to `/usr/bin/chromium`, the browser binary installed
+in the image.
 
 ### Installed toolchains
 
-The image is based on Ubuntu 24.04 and includes: Node.js, Go, Rust,
+The image is based on Debian Bookworm and includes: Node.js, Go, Rust,
 Ruby, Python 3, and standard CLI tools (ripgrep, jq, fzf, tmux, git,
 curl, zsh). Claude Code CLI is pre-installed. Corepack is enabled with
 yarn pre-activated.
@@ -298,4 +299,4 @@ yarn pre-activated.
 - Build-time image customisation from config.
 - Per-container firewall isolation. All containers share the same
   config-derived rules.
-- GUI browser support. Chromium is headless only.
+- GUI browser support. Chrome is headless only.
