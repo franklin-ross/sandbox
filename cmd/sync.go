@@ -56,7 +56,7 @@ func syncStatusDone() {
 
 // copyToContainer writes data to a host temp file and docker-cp's it into the container.
 func copyToContainer(container string, data []byte, dest string) error {
-	tmp, err := os.CreateTemp("", "ao-sandbox-sync-*")
+	tmp, err := os.CreateTemp("", "sandbox-sync-*")
 	if err != nil {
 		return err
 	}
@@ -125,16 +125,16 @@ func buildSyncManifest(cfg *SandboxConfig) ([]SyncItem, error) {
 	if envData := generateEnvFile(cfg.Env); envData != nil {
 		items = append(items, SyncItem{
 			Data:  envData,
-			Dest:  "/home/agent/.ao-env",
+			Dest:  "/home/agent/.sandbox-env",
 			Mode:  "0644",
 			Owner: "agent:agent",
 		})
 	}
 
-	// 4. Home directory files from ~/.ao/sandbox/home/
+	// 4. Home directory files from ~/.sandbox/home/
 	home, err := os.UserHomeDir()
 	if err == nil {
-		homeDir := filepath.Join(home, ".ao", "sandbox", "home")
+		homeDir := filepath.Join(home, ".sandbox", "home")
 		if info, statErr := os.Stat(homeDir); statErr == nil && info.IsDir() {
 			walkErr := filepath.Walk(homeDir, func(path string, info os.FileInfo, err error) error {
 				if err != nil {
@@ -237,7 +237,7 @@ func syncContainer(name, wsPath string, force bool) error {
 	hash := hex.EncodeToString(h.Sum(nil))
 
 	if !force {
-		out, err := exec.Command("docker", "exec", name, "cat", "/opt/ao-sync.sha256").Output()
+		out, err := exec.Command("docker", "exec", name, "cat", "/opt/sandbox-sync.sha256").Output()
 		if err == nil && strings.TrimSpace(string(out)) == hash {
 			return nil
 		}
@@ -249,8 +249,8 @@ func syncContainer(name, wsPath string, force bool) error {
 	resultCh, progressCh := resolveFirewallEntriesAsync(cfg)
 
 	// Capture old firewall rules to detect changes
-	oldV4, _ := exec.Command("docker", "exec", name, "cat", "/opt/ao-firewall-rules.sh").Output()
-	oldV6, _ := exec.Command("docker", "exec", name, "cat", "/opt/ao-firewall-rules6.sh").Output()
+	oldV4, _ := exec.Command("docker", "exec", name, "cat", "/opt/sandbox-firewall-rules.sh").Output()
+	oldV6, _ := exec.Command("docker", "exec", name, "cat", "/opt/sandbox-firewall-rules6.sh").Output()
 
 	// Sync non-firewall items (runs in parallel with DNS resolution)
 	if err := syncItems(name, items); err != nil {
@@ -276,8 +276,8 @@ func syncContainer(name, wsPath string, force bool) error {
 
 	// Sync firewall rules files
 	fwItems := []SyncItem{
-		{Data: v4Rules, Dest: "/opt/ao-firewall-rules.sh", Mode: "0755", Owner: "root:root"},
-		{Data: v6Rules, Dest: "/opt/ao-firewall-rules6.sh", Mode: "0755", Owner: "root:root"},
+		{Data: v4Rules, Dest: "/opt/sandbox-firewall-rules.sh", Mode: "0755", Owner: "root:root"},
+		{Data: v6Rules, Dest: "/opt/sandbox-firewall-rules6.sh", Mode: "0755", Owner: "root:root"},
 	}
 	if err := syncItems(name, fwItems); err != nil {
 		return err
@@ -294,7 +294,7 @@ func syncContainer(name, wsPath string, force bool) error {
 	}
 
 	// Write sync hash
-	if err := exec.Command("docker", "exec", "-u", "root", name, "sh", "-c", fmt.Sprintf("echo %s > /opt/ao-sync.sha256", hash)).Run(); err != nil {
+	if err := exec.Command("docker", "exec", "-u", "root", name, "sh", "-c", fmt.Sprintf("echo %s > /opt/sandbox-sync.sha256", hash)).Run(); err != nil {
 		return fmt.Errorf("write sync hash: %w", err)
 	}
 

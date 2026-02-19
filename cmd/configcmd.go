@@ -25,8 +25,8 @@ var configInitCmd = &cobra.Command{
 			return fmt.Errorf("get home directory: %w", err)
 		}
 
-		configPath := filepath.Join(home, ".ao", "sandbox", "config.yaml")
-		homePath := filepath.Join(home, ".ao", "sandbox", "home")
+		configPath := filepath.Join(home, ".sandbox", "config.yaml")
+		homePath := filepath.Join(home, ".sandbox", "home")
 		zshrcPath := filepath.Join(homePath, ".zshrc")
 
 		configExists := fileExists(configPath)

@@ -59,7 +59,7 @@ ENV GOPATH="/home/agent/go"
 ENV PATH="${GOPATH}/bin:${PATH}"
 RUN mkdir -p /home/agent/go
 
-# Oh My Zsh (config init writes .zshrc to ~/.ao/sandbox/home/, synced at start)
+# Oh My Zsh (config init writes .zshrc to ~/.sandbox/home/, synced at start)
 RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
 
 # Firewall + entrypoint

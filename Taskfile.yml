@@ -1,0 +1,50 @@
+version: '3'
+
+tasks:
+  build:
+    desc: Build all binaries
+    deps: [build:cli, build:image]
+
+  build:cli:
+    desc: Build the sandbox CLI
+    cmds:
+      - go build -o bin/sandbox .
+    sources:
+      - '**/*.go'
+      - cmd/image/*
+      - go.mod
+      - go.sum
+    generates:
+      - bin/sandbox
+
+  build:image:
+    desc: Build the sandbox Docker image
+    cmds:
+      - docker build -t sandbox cmd/image
+
+  install:
+    desc: Install sandbox to ~/bin
+    cmds:
+      - cp bin/sandbox $HOME/bin/sandbox
+    deps: [lint, build:cli, test, test:integration]
+
+  clean:
+    desc: Remove build artifacts
+    cmds:
+      - rm -rf bin/
+
+  lint:
+    desc: Run linters
+    cmds:
+      - go vet ./...
+
+  test:
+    desc: Run unit tests (fast)
+    cmds:
+      - go test -short ./...
+
+  test:integration:
+    desc: Run integration tests (builds real sandbox image)
+    deps: [build:cli]
+    cmds:
+      - go test -run TestImageIntegration -count=1 -timeout 15m ./cmd/

@@ -8,8 +8,8 @@ set -euo pipefail
 # atomically via iptables-restore / ip6tables-restore.
 # ============================================================
 
-if [ -f /opt/ao-firewall-rules.sh ]; then
-    iptables-restore < /opt/ao-firewall-rules.sh
+if [ -f /opt/sandbox-firewall-rules.sh ]; then
+    iptables-restore < /opt/sandbox-firewall-rules.sh
 else
     # Basic lockdown until first sync pushes the rules file
     iptables -F OUTPUT
@@ -20,8 +20,8 @@ else
     iptables -A OUTPUT -j REJECT --reject-with icmp-port-unreachable
 fi
 
-if [ -f /opt/ao-firewall-rules6.sh ]; then
-    ip6tables-restore < /opt/ao-firewall-rules6.sh
+if [ -f /opt/sandbox-firewall-rules6.sh ]; then
+    ip6tables-restore < /opt/sandbox-firewall-rules6.sh
 else
     # Basic lockdown until first sync pushes the rules file
     ip6tables -F OUTPUT

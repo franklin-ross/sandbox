@@ -18,10 +18,9 @@ import (
 var dockerfile []byte
 
 var (
-	imageName = "ao-sandbox"
-	credsVol  = "ao-sandbox-creds"
-	labelSel  = "ao.sandbox=true"
-	labelWs   = "ao.workspace"
+	imageName = "sandbox"
+	labelSel  = "sandbox.managed=true"
+	labelWs   = "sandbox.workspace"
 )
 
 // ensureStarted makes sure the container is running, creating or restarting it
@@ -57,7 +56,6 @@ func ensureStarted(wsPath string) (string, error) {
 		"--label", labelSel,
 		"--label", labelWs+"="+wsPath,
 		"--cap-add", "NET_ADMIN",
-		"-v", credsVol+":/home/agent/.claude",
 		"-v", wsPath+":"+wsPath,
 		"-w", wsPath,
 		imageName)
@@ -98,7 +96,7 @@ func ensureImage() error {
 	if imageExists() {
 		// Check if the image was built from the same inputs.
 		out, err := exec.Command("docker", "inspect", "-f",
-			`{{index .Config.Labels "ao.image.hash"}}`, imageName).Output()
+			`{{index .Config.Labels "sandbox.image.hash"}}`, imageName).Output()
 		if err == nil && strings.TrimSpace(string(out)) == hash {
 			return nil
 		}
@@ -110,7 +108,7 @@ func ensureImage() error {
 }
 
 func buildImage(hash string) error {
-	dir, err := os.MkdirTemp("", "ao-sandbox-build-*")
+	dir, err := os.MkdirTemp("", "sandbox-build-*")
 	if err != nil {
 		return fmt.Errorf("mkdtemp: %w", err)
 	}
@@ -129,7 +127,7 @@ func buildImage(hash string) error {
 	cmd := exec.Command("docker", "build",
 		"--progress=plain",
 		"--build-arg", fmt.Sprintf("HOST_UID=%d", os.Getuid()),
-		"--label", "ao.image.hash="+hash,
+		"--label", "sandbox.image.hash="+hash,
 		"-t", imageName, dir)
 
 	// Show build progress as a single updating status line.
@@ -265,7 +263,7 @@ func dockerRun(args ...string) error {
 }
 
 func containerName(wsPath string) string {
-	return "ao-sandbox-" + filepath.Base(wsPath)
+	return "sandbox-" + filepath.Base(wsPath)
 }
 
 // zshTheme returns the user's ZSH theme name. It checks the ZSH_THEME

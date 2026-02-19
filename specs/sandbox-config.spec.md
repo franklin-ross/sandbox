@@ -7,7 +7,7 @@ AI agents. Its behaviour — what files are present, what network access
 is allowed, and what environment is configured — is controlled through
 a user-editable YAML config rather than hardcoded values in the binary.
 
-Users manage their sandbox configuration in `~/.ao/sandbox/`. Per-workspace
+Users manage their sandbox configuration in `~/.sandbox/`. Per-workspace
 overrides allow project-specific customisation without affecting the
 global defaults.
 
@@ -19,8 +19,8 @@ The sandbox reads configuration from two YAML files, merged at load time:
 
 | Location | Scope |
 |----------|-------|
-| `~/.ao/sandbox/config.yaml` | Global — applies to all sandboxes |
-| `<workspace>/.ao/sandbox/config.yaml` | Per-workspace — overrides global |
+| `~/.sandbox/config.yaml` | Global — applies to all sandboxes |
+| `<workspace>/.sandbox/config.yaml` | Per-workspace — overrides global |
 
 ### Merge semantics
 
@@ -67,9 +67,9 @@ firewall:
 `sandbox init` creates the initial configuration directory and default
 config file:
 
-- Creates `~/.ao/sandbox/config.yaml` with the default firewall
+- Creates `~/.sandbox/config.yaml` with the default firewall
   allowlist (see Firewall section).
-- Creates the `~/.ao/sandbox/home/` directory.
+- Creates the `~/.sandbox/home/` directory.
 - If the config file already exists, prints a message and exits
   without overwriting.
 
@@ -91,11 +91,11 @@ being synced.
 
 ### Convention-based home directory
 
-Files placed in `~/.ao/sandbox/home/` are synced to `/home/agent/` in
+Files placed in `~/.sandbox/home/` are synced to `/home/agent/` in
 the container, preserving directory structure:
 
 ```
-~/.ao/sandbox/home/
+~/.sandbox/home/
   .gitconfig          → /home/agent/.gitconfig
   .vimrc              → /home/agent/.vimrc
   bin/
@@ -139,7 +139,7 @@ processed in this order:
 3. Generated environment file (from `env` config).
 4. Generated ZSH theme file (from host detection).
 5. Custom oh-my-zsh theme file (if present on host).
-6. Convention-based `~/.ao/sandbox/home/` files.
+6. Convention-based `~/.sandbox/home/` files.
 7. Explicit sync rules from config (with glob expansion).
 
 Later items with the same destination override earlier items.
@@ -149,7 +149,7 @@ Later items with the same destination override earlier items.
 A SHA-256 hash covers all synced content: embedded assets (entrypoint,
 firewall script), the merged config, home directory files, and explicit
 sync source files. The hash
-is stored at `/opt/ao-sync.sha256` in the container. Sync is skipped
+is stored at `/opt/sandbox-sync.sha256` in the container. Sync is skipped
 when the hash matches the previous sync, unless a force sync is
 requested (via `sandbox sync`).
 
@@ -160,7 +160,7 @@ requested (via `sandbox sync`).
 The firewall script (`init-firewall.sh`) runs at container start via
 the entrypoint. It sets up baseline iptables rules — allow loopback,
 DNS, and established connections — then sources a generated rules file
-at `/opt/ao-firewall-rules.sh` if it exists, then applies a default
+at `/opt/sandbox-firewall-rules.sh` if it exists, then applies a default
 REJECT policy.
 
 There are no hardcoded domain allowlists in the firewall script. All
@@ -209,9 +209,9 @@ is still usable, just with stale firewall rules.
 Environment variables defined in the `env` section of `config.yaml`
 are injected into the container two ways:
 
-1. **Shell profile**: a generated file at `/home/agent/.ao-env`
+1. **Shell profile**: a generated file at `/home/agent/.sandbox-env`
    contains `export KEY=value` lines. The container's `.zshrc` sources
-   it: `[ -f ~/.ao-env ] && source ~/.ao-env`. This covers interactive
+   it: `[ -f ~/.sandbox-env ] && source ~/.sandbox-env`. This covers interactive
    shell sessions.
 
 2. **Exec flags**: env vars are passed via `-e` flags on `docker exec`
@@ -238,13 +238,13 @@ are used as-is.
 The host's ZSH theme is detected and synced into the container via a
 source-file pattern rather than modifying `.zshrc` directly.
 
-A file `/home/agent/.ao-zsh-theme` is synced containing the theme
+A file `/home/agent/.sandbox-zsh-theme` is synced containing the theme
 assignment (e.g., `ZSH_THEME="robbyrussell"`). The container's `.zshrc`
 sources this file before oh-my-zsh loads, so the theme variable is set
 in time for oh-my-zsh to read it:
 
 ```
-[ -f ~/.ao-zsh-theme ] && source ~/.ao-zsh-theme
+[ -f ~/.sandbox-zsh-theme ] && source ~/.sandbox-zsh-theme
 ```
 
 Custom oh-my-zsh theme files (from `~/.oh-my-zsh/custom/themes/`) are
@@ -254,14 +254,14 @@ copied to the same location in the container.
 
 ### Naming and identity
 
-Each workspace gets a container named `ao-sandbox-<basename>` (derived
+Each workspace gets a container named `sandbox-<basename>` (derived
 from the workspace directory name). The container's hostname is set to
 the same value, giving each workspace a stable machine identity across
 container restarts and recreations.
 
 ### Credential persistence
 
-A named Docker volume (`ao-sandbox-creds`) is mounted at
+A named Docker volume (`sandbox-creds`) is mounted at
 `/home/agent/.claude` in every container. This persists Claude CLI
 credentials across container restarts and image rebuilds. The stable
 hostname ensures the Claude CLI does not treat a recreated container
@@ -273,7 +273,7 @@ The entrypoint and firewall scripts are embedded in the sandbox Go
 binary and synced into running containers at startup. Changes to these
 files do not require an image rebuild — a `sandbox sync` or container
 restart picks them up. Additional binaries (such as the workflow CLI)
-are installed via the user's `~/.ao/sandbox/home/` directory or
+are installed via the user's `~/.sandbox/home/` directory or
 explicit sync rules.
 
 ## Container image

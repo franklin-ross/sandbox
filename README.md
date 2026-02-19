@@ -1,12 +1,11 @@
 # sandbox
 
-A CLI tool for running Claude Code in sandboxed Docker containers with network firewalling, persistent credentials, and no permission prompts.
+A CLI tool for running Claude Code in sandboxed Docker containers with network firewalling and no permission prompts.
 
 ## Why
 
 The official Claude Code Docker sandbox has an opinionated auth flow that makes autonomous agent use painful. This tool gives you:
 
-- **Auth persisted across containers** via a shared Docker volume — log in once with `claude login`
 - **Network firewalling** — outbound traffic restricted to Claude API, package registries (npm, Go, Rust, Ruby, PyPI), and GitHub
 - **No permission prompts** — `--dangerously-skip-permissions` by default, because the container IS the sandbox
 - **zsh shell at workspace root** — not dropped straight into Claude
@@ -67,7 +66,7 @@ sandbox shell .
 claude login
 ```
 
-Your credentials are stored in a persistent Docker volume (`ao-sandbox-creds`) shared across all sandboxes. You won't need to log in again.
+Credentials live inside the container. If you remove the container (`sandbox rm`), you'll need to log in again.
 
 ## What's in the container
 
@@ -104,7 +103,7 @@ The Docker image files are embedded in the `sandbox` binary via `go:embed`. When
 1. Writes the embedded Dockerfile and scripts to a temp directory
 2. Builds the image (if not already built)
 3. Runs the container with `--cap-add=NET_ADMIN` (for iptables)
-4. Mounts your workspace and the credentials volume at `~/.claude`
+4. Mounts your workspace into the container
 5. The entrypoint sets up iptables firewall rules, then sleeps
 
 You then interact via `sandbox shell`, `sandbox claude`, or `sandbox code`.

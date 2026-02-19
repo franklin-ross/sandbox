@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-const integrationImage = "ao-sandbox-integration-test"
-const integrationContainer = "ao-sandbox-integration-test-ctr"
+const integrationImage = "sandbox-integration-test"
+const integrationContainer = "sandbox-integration-test-ctr"
 
 // buildRealImage builds the actual sandbox image from the image/ directory
 // under a test pseudonym so it doesn't collide with the production image.

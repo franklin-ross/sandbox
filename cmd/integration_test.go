@@ -3,11 +3,12 @@ package cmd
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
 
-const testImageName = "ao-sandbox-test"
+const testImageName = "sandbox-test"
 
 // Minimal test image that mirrors the sandbox structure (agent user, .zshrc)
 // so syncContainer exercises the real code paths.
@@ -50,7 +51,7 @@ func buildTestImage(t *testing.T) {
 	}
 
 	cmd := exec.Command("docker", "build",
-		"--label", "ao.image.hash="+imageHash(),
+		"--label", "sandbox.image.hash="+imageHash(),
 		"-t", testImageName, dir)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -84,9 +85,18 @@ func overrideEmbeddedFiles(t *testing.T) {
 // loadConfig succeeds during integration tests.
 func useTestConfig(t *testing.T) {
 	t.Helper()
+	origHome := os.Getenv("HOME")
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
-	configDir := tmpHome + "/.ao/sandbox"
+
+	// Symlink the Docker config so Docker can still find its socket/context
+	// after HOME changes (needed for non-default Docker hosts like OrbStack).
+	origDocker := filepath.Join(origHome, ".docker")
+	if _, err := os.Stat(origDocker); err == nil {
+		os.Symlink(origDocker, filepath.Join(tmpHome, ".docker"))
+	}
+
+	configDir := tmpHome + "/.sandbox"
 	os.MkdirAll(configDir, 0755)
 	os.WriteFile(configDir+"/config.yaml", []byte("sync: []\nenv: {}\nfirewall:\n  allow: []\n"), 0644)
 }
@@ -384,7 +394,7 @@ func TestContainerLabels(t *testing.T) {
 
 	// Check labels via docker inspect
 	out, err := exec.Command("docker", "inspect", "-f",
-		`{{index .Config.Labels "ao.workspace"}}`, name).Output()
+		`{{index .Config.Labels "sandbox.workspace"}}`, name).Output()
 	if err != nil {
 		t.Fatalf("docker inspect: %v", err)
 	}

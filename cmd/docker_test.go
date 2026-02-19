@@ -12,9 +12,9 @@ func TestContainerName(t *testing.T) {
 		path string
 		want string
 	}{
-		{"/home/user/projects/myapp", "ao-sandbox-myapp"},
-		{"/tmp/test", "ao-sandbox-test"},
-		{"/home/user/my-project", "ao-sandbox-my-project"},
+		{"/home/user/projects/myapp", "sandbox-myapp"},
+		{"/tmp/test", "sandbox-test"},
+		{"/home/user/my-project", "sandbox-my-project"},
 	}
 
 	for _, tt := range tests {
@@ -41,8 +41,8 @@ func TestContainerNameRootPath(t *testing.T) {
 	// filepath.Base("/") returns "/" which produces an invalid Docker
 	// container name. Document this edge case.
 	got := containerName("/")
-	if got != "ao-sandbox-/" {
-		t.Errorf("containerName(%q) = %q, want %q", "/", got, "ao-sandbox-/")
+	if got != "sandbox-/" {
+		t.Errorf("containerName(%q) = %q, want %q", "/", got, "sandbox-/")
 	}
 	// NOTE: Docker would reject this name at runtime. The production code
 	// does not guard against this because resolvePath always produces a
@@ -90,9 +90,9 @@ func TestContainerNameSpecialChars(t *testing.T) {
 		path string
 		want string
 	}{
-		{"/home/user/my.project", "ao-sandbox-my.project"},
-		{"/home/user/my_project", "ao-sandbox-my_project"},
-		{"/home/user/v2.1.0", "ao-sandbox-v2.1.0"},
+		{"/home/user/my.project", "sandbox-my.project"},
+		{"/home/user/my_project", "sandbox-my_project"},
+		{"/home/user/v2.1.0", "sandbox-v2.1.0"},
 	}
 
 	for _, tt := range tests {
@@ -109,8 +109,8 @@ func TestContainerNameWithSpaces(t *testing.T) {
 	// Paths with spaces produce container names with spaces, which Docker
 	// would reject. Documents this limitation.
 	got := containerName("/home/user/my project")
-	if got != "ao-sandbox-my project" {
-		t.Errorf("containerName with spaces = %q, want %q", got, "ao-sandbox-my project")
+	if got != "sandbox-my project" {
+		t.Errorf("containerName with spaces = %q, want %q", got, "sandbox-my project")
 	}
 	// NOTE: Docker rejects container names with spaces at runtime.
 }

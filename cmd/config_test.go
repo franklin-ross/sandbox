@@ -200,7 +200,7 @@ func TestLoadConfig(t *testing.T) {
 		tmpHome := t.TempDir()
 		t.Setenv("HOME", tmpHome)
 
-		configDir := filepath.Join(tmpHome, ".ao", "sandbox")
+		configDir := filepath.Join(tmpHome, ".sandbox")
 		os.MkdirAll(configDir, 0755)
 		os.WriteFile(filepath.Join(configDir, "config.yaml"), []byte(`
 env:
@@ -226,7 +226,7 @@ firewall:
 		t.Setenv("HOME", tmpHome)
 
 		// Global config
-		configDir := filepath.Join(tmpHome, ".ao", "sandbox")
+		configDir := filepath.Join(tmpHome, ".sandbox")
 		os.MkdirAll(configDir, 0755)
 		os.WriteFile(filepath.Join(configDir, "config.yaml"), []byte(`env:
   TEST: global
@@ -236,7 +236,7 @@ firewall:
 `), 0644)
 
 		wsPath := t.TempDir()
-		wsConfigDir := filepath.Join(wsPath, ".ao", "sandbox")
+		wsConfigDir := filepath.Join(wsPath, ".sandbox")
 		os.MkdirAll(wsConfigDir, 0755)
 		os.WriteFile(filepath.Join(wsConfigDir, "config.yaml"), []byte(`env:
   TEST: workspace
@@ -506,8 +506,8 @@ func TestBuildSyncManifest(t *testing.T) {
 		if items[1].Dest != "/opt/init-firewall.sh" {
 			t.Errorf("item 1 dest = %q, want /opt/init-firewall.sh", items[1].Dest)
 		}
-		if items[2].Dest != "/home/agent/.ao-env" {
-			t.Errorf("item 2 dest = %q, want /home/agent/.ao-env", items[2].Dest)
+		if items[2].Dest != "/home/agent/.sandbox-env" {
+			t.Errorf("item 2 dest = %q, want /home/agent/.sandbox-env", items[2].Dest)
 		}
 		if items[2].Owner != "agent:agent" {
 			t.Errorf("item 2 owner = %q, want agent:agent", items[2].Owner)
@@ -519,7 +519,7 @@ func TestBuildSyncManifest(t *testing.T) {
 		t.Setenv("HOME", tmpHome)
 		t.Setenv("ZSH_THEME", "")
 
-		homeDir := filepath.Join(tmpHome, ".ao", "sandbox", "home")
+		homeDir := filepath.Join(tmpHome, ".sandbox", "home")
 		os.MkdirAll(filepath.Join(homeDir, "bin"), 0755)
 		os.WriteFile(filepath.Join(homeDir, "bin", "hello"), []byte("#!/bin/sh\necho hi"), 0755)
 		os.WriteFile(filepath.Join(homeDir, ".gitconfig"), []byte("[user]\nname=test"), 0644)

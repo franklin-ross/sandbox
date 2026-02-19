@@ -46,8 +46,8 @@ type SyncItem struct {
 }
 
 const defaultConfigYAML = `# Sandbox configuration
-# Global: ~/.ao/sandbox/config.yaml
-# Per-workspace: <workspace>/.ao/sandbox/config.yaml
+# Global: ~/.sandbox/config.yaml
+# Per-workspace: <workspace>/.sandbox/config.yaml
 
 sync:
   # Sync custom oh-my-zsh themes from host
@@ -161,12 +161,12 @@ func loadConfig(wsPath string) (*SandboxConfig, error) {
 		return nil, fmt.Errorf("get home directory: %w", err)
 	}
 
-	global, err := parseConfigFile(filepath.Join(home, ".ao", "sandbox", "config.yaml"))
+	global, err := parseConfigFile(filepath.Join(home, ".sandbox", "config.yaml"))
 	if err != nil {
 		return nil, fmt.Errorf("load global config: %w", err)
 	}
 
-	ws, err := parseConfigFile(filepath.Join(wsPath, ".ao", "sandbox", "config.yaml"))
+	ws, err := parseConfigFile(filepath.Join(wsPath, ".sandbox", "config.yaml"))
 	if err != nil {
 		return nil, fmt.Errorf("load workspace config: %w", err)
 	}
@@ -286,7 +286,7 @@ ZSH_THEME="%s"
 plugins=(git npm yarn golang rust)
 source $ZSH/oh-my-zsh.sh
 
-# Files on the host in ~/.ao/sandbox/home/bin/ are synced to ~/bin
+# Files on the host in ~/.sandbox/home/bin/ are synced to ~/bin
 # in the container on start. They need to be linux binaries to run.
 export PATH="$HOME/bin:$PATH"
 
@@ -294,6 +294,6 @@ export PATH="$HOME/bin:$PATH"
 eval "$(task --completion zsh)"
 
 # Sandbox environment (managed by sandbox sync)
-[ -f ~/.ao-env ] && source ~/.ao-env
+[ -f ~/.sandbox-env ] && source ~/.sandbox-env
 `, theme)
 }
