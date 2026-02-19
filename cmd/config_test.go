@@ -278,6 +278,145 @@ firewall:
 	})
 }
 
+func TestOnSyncHookParsing(t *testing.T) {
+	t.Run("full hook", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "config.yaml")
+		os.WriteFile(path, []byte(`on_sync:
+  - cmd: npm install
+    name: install deps
+    root: true
+`), 0644)
+
+		cfg, err := parseConfigFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(cfg.OnSync) != 1 {
+			t.Fatalf("on_sync len = %d, want 1", len(cfg.OnSync))
+		}
+		if cfg.OnSync[0].Cmd != "npm install" {
+			t.Errorf("cmd = %q, want %q", cfg.OnSync[0].Cmd, "npm install")
+		}
+		if cfg.OnSync[0].Name != "install deps" {
+			t.Errorf("name = %q, want %q", cfg.OnSync[0].Name, "install deps")
+		}
+		if !cfg.OnSync[0].Root {
+			t.Error("root should be true")
+		}
+	})
+
+	t.Run("minimal hook", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "config.yaml")
+		os.WriteFile(path, []byte(`on_sync:
+  - cmd: echo hello
+`), 0644)
+
+		cfg, err := parseConfigFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(cfg.OnSync) != 1 {
+			t.Fatalf("on_sync len = %d, want 1", len(cfg.OnSync))
+		}
+		if cfg.OnSync[0].Name != "" {
+			t.Errorf("name = %q, want empty", cfg.OnSync[0].Name)
+		}
+		if cfg.OnSync[0].Root {
+			t.Error("root should default to false")
+		}
+	})
+
+	t.Run("empty cmd rejected", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "config.yaml")
+		os.WriteFile(path, []byte(`on_sync:
+  - cmd: ""
+    name: bad hook
+  - cmd: echo ok
+`), 0644)
+
+		cfg, err := parseConfigFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(cfg.OnSync) != 1 {
+			t.Fatalf("on_sync len = %d, want 1 (empty cmd should be filtered)", len(cfg.OnSync))
+		}
+		if cfg.OnSync[0].Cmd != "echo ok" {
+			t.Errorf("cmd = %q, want %q", cfg.OnSync[0].Cmd, "echo ok")
+		}
+	})
+
+	t.Run("whitespace-only cmd rejected", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "config.yaml")
+		os.WriteFile(path, []byte(`on_sync:
+  - cmd: "   "
+`), 0644)
+
+		cfg, err := parseConfigFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(cfg.OnSync) != 0 {
+			t.Fatalf("on_sync len = %d, want 0 (whitespace cmd should be filtered)", len(cfg.OnSync))
+		}
+	})
+}
+
+func TestMergeOnSync(t *testing.T) {
+	t.Run("additive global first then workspace", func(t *testing.T) {
+		base := &SandboxConfig{
+			OnSync: []OnSyncHook{
+				{Cmd: "echo global", Name: "global hook"},
+			},
+		}
+		override := &SandboxConfig{
+			OnSync: []OnSyncHook{
+				{Cmd: "echo workspace", Name: "ws hook"},
+			},
+		}
+		merged := mergeConfig(base, override)
+		if len(merged.OnSync) != 2 {
+			t.Fatalf("on_sync len = %d, want 2", len(merged.OnSync))
+		}
+		if merged.OnSync[0].Cmd != "echo global" {
+			t.Errorf("on_sync[0] cmd = %q, want %q", merged.OnSync[0].Cmd, "echo global")
+		}
+		if merged.OnSync[1].Cmd != "echo workspace" {
+			t.Errorf("on_sync[1] cmd = %q, want %q", merged.OnSync[1].Cmd, "echo workspace")
+		}
+	})
+
+	t.Run("empty base", func(t *testing.T) {
+		base := &SandboxConfig{}
+		override := &SandboxConfig{
+			OnSync: []OnSyncHook{
+				{Cmd: "echo ws"},
+			},
+		}
+		merged := mergeConfig(base, override)
+		if len(merged.OnSync) != 1 {
+			t.Fatalf("on_sync len = %d, want 1", len(merged.OnSync))
+		}
+	})
+
+	t.Run("empty override", func(t *testing.T) {
+		base := &SandboxConfig{
+			OnSync: []OnSyncHook{
+				{Cmd: "echo global"},
+			},
+		}
+		override := &SandboxConfig{}
+		merged := mergeConfig(base, override)
+		if len(merged.OnSync) != 1 {
+			t.Fatalf("on_sync len = %d, want 1", len(merged.OnSync))
+		}
+	})
+}
+
 func TestFirewallEntryValidation(t *testing.T) {
 	t.Run("valid domain", func(t *testing.T) {
 		if !validateFirewallEntry(FirewallEntry{Domain: "example.com"}) {

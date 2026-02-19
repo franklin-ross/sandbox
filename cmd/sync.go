@@ -226,7 +226,7 @@ func syncContainer(name, wsPath string, force bool) error {
 		return fmt.Errorf("build sync manifest: %w", err)
 	}
 
-	// Compute hash over sync items + firewall config (not resolved IPs).
+	// Compute hash over sync items + firewall config + on_sync hooks.
 	// This lets us skip sync without DNS when nothing has changed.
 	h := sha256.New()
 	for _, item := range items {
@@ -234,6 +234,13 @@ func syncContainer(name, wsPath string, force bool) error {
 		h.Write([]byte(item.Dest))
 	}
 	h.Write(firewallConfigHash(cfg))
+	for _, hook := range cfg.OnSync {
+		h.Write([]byte(hook.Cmd))
+		h.Write([]byte(hook.Name))
+		if hook.Root {
+			h.Write([]byte("root"))
+		}
+	}
 	hash := hex.EncodeToString(h.Sum(nil))
 
 	if !force {
@@ -293,10 +300,39 @@ func syncContainer(name, wsPath string, force bool) error {
 		syncStatusDone()
 	}
 
+	// Run on_sync hooks
+	if err := runOnSyncHooks(name, "/home/agent", cfg.OnSync); err != nil {
+		return err
+	}
+
 	// Write sync hash
 	if err := exec.Command("docker", "exec", "-u", "root", name, "sh", "-c", fmt.Sprintf("echo %s > /opt/sandbox-sync.sha256", hash)).Run(); err != nil {
 		return fmt.Errorf("write sync hash: %w", err)
 	}
 
+	return nil
+}
+
+// runOnSyncHooks executes on_sync hooks sequentially inside the container.
+func runOnSyncHooks(container, workdir string, hooks []OnSyncHook) error {
+	for _, hook := range hooks {
+		label := hook.Name
+		if label == "" {
+			label = hook.Cmd
+		}
+		syncStatus("hook: " + label)
+		user := "agent"
+		if hook.Root {
+			user = "root"
+		}
+		cmd := exec.Command("docker", "exec", "-u", user, "-w", workdir,
+			container, "sh", "-c", hook.Cmd)
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			syncStatusDone()
+			return fmt.Errorf("on_sync hook %q failed: %w\n%s", label, err, string(output))
+		}
+	}
+	syncStatusDone()
 	return nil
 }

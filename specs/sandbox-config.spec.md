@@ -33,6 +33,8 @@ When both global and workspace configs exist, they merge as follows:
   additive.
 - **`firewall.allow`**: purely additive. Both global and workspace
   entries are included.
+- **`on_sync`**: purely additive. Global hooks run first, then
+  workspace hooks.
 
 ### Schema
 
@@ -60,6 +62,13 @@ firewall:
       ports: [443, 8443]                   # custom port list
     - cidr: 10.0.0.0/8                     # raw IP/CIDR range
       ports: [443]                         # optional port restriction
+
+# Commands to run inside the container after every sync
+on_sync:
+  - cmd: npm install                       # required — shell command
+    name: install deps                     # optional — label for status output
+  - cmd: chmod 600 ~/.ssh/*
+    root: true                             # optional — run as root (default: false)
 ```
 
 ## `sandbox init`
@@ -147,11 +156,11 @@ Later items with the same destination override earlier items.
 ### Change detection
 
 A SHA-256 hash covers all synced content: embedded assets (entrypoint,
-firewall script), the merged config, home directory files, and explicit
-sync source files. The hash
-is stored at `/opt/sandbox-sync.sha256` in the container. Sync is skipped
-when the hash matches the previous sync, unless a force sync is
-requested (via `sandbox sync`).
+firewall script), the merged config, home directory files, explicit
+sync source files, and on_sync hook definitions. The hash is stored at
+`/opt/sandbox-sync.sha256` in the container. Sync is skipped when the
+hash matches the previous sync, unless a force sync is requested (via
+`sandbox sync`).
 
 ## Firewall
 
@@ -232,6 +241,64 @@ env:
 runs. If the host variable is unset, the env var is omitted from the
 generated env file (not set to empty). Literal values (no `$` prefix)
 are used as-is.
+
+## Post-sync hooks
+
+The `on_sync` section defines shell commands that run inside the
+container after every sync completes (after files are copied and
+firewall rules are applied). This is useful for installing
+dependencies, fixing permissions, or other setup that needs to happen
+each time the sandbox environment is refreshed.
+
+### Fields
+
+| Field  | Required | Default | Description |
+|--------|----------|---------|-------------|
+| `cmd`  | yes      | —       | Shell command passed to `sh -c` inside the container |
+| `name` | no       | `cmd`   | Human-readable label shown in the status line during sync |
+| `root` | no       | `false` | Run as `root` instead of `agent` |
+
+Only two users are available: `agent` (default) and `root`. The
+`root` flag is a boolean rather than an arbitrary user string to keep
+things simple and safe.
+
+### Execution
+
+Hooks run sequentially in the order they appear in the merged config
+(global hooks first, then workspace hooks). Each hook runs via:
+
+```
+docker exec -u <user> -w /home/agent <container> sh -c "<cmd>"
+```
+
+If any hook fails (non-zero exit), the sync aborts immediately and
+the error — including the hook's combined stdout/stderr — is reported.
+The sync hash is **not** written, so the next sync will re-run all
+hooks.
+
+### Change detection
+
+Hook definitions (cmd, name, root) are included in the sync hash.
+Changing a hook's command or flags in config triggers a re-sync and
+re-execution of all hooks. The actual hook output is not hashed.
+
+### Examples
+
+```yaml
+# Install JS dependencies after sync
+on_sync:
+  - cmd: npm install
+    name: install deps
+
+# Fix SSH key permissions (needs root)
+  - cmd: chmod 600 /home/agent/.ssh/*
+    root: true
+    name: fix ssh perms
+
+# Run a project-specific setup script
+  - cmd: ./scripts/setup.sh
+    name: project setup
+```
 
 ## ZSH theme
 

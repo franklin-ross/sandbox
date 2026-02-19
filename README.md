@@ -11,6 +11,7 @@ The official Claude Code Docker sandbox has an opinionated auth flow that makes 
 - **zsh shell at workspace root** — not dropped straight into Claude
 - **VSCode attachment** — `sandbox code .` opens VSCode remote into the container
 - **Configuration** — More/simpler configuration options
+- **Post-sync hooks** — run commands inside the container after every sync (e.g., `npm install -g some-tool`)
 
 ## Install
 
@@ -31,7 +32,7 @@ Claude credentials live inside the sandbox, so you'll need to log in once for ea
 # Global initialisation (run once)
 sandbox config init
 
-# Open a shell in a running sandbox in the current directory
+# Open a shell in a running sandbox
 sandbox shell ~/projects/myapp
 
 # Open Claude in a directory (with --dangerously-skip-permissions)
@@ -39,21 +40,57 @@ sandbox claude project/
 # Pass args through to Claude
 sandbox claude . -- -p "fix the failing tests"
 
-# Open VSCode attached to the sandbox
+# Open VSCode connected into to the sandbox
 sandbox code .
 
 # List running sandboxes
 sandbox ls
-
 # Stop a running sandbox
 sandbox stop .
 # Remove a sandbox (stops it first if running)
 sandbox rm .
-
-# Forcibly copy files and update firewalls inside the sandbox
-# Other commands do this by default, so not usually necessary
+# Forcibly copy files, update firewalls, and run on_sync scripts inside
+# the sandbox (Not usually necessary to call directly.)
 sandbox sync project/
 ```
+
+## Configuration
+
+Config lives in two places, merged at load time:
+
+- **Global**: `~/.sandbox/` — applies to all sandboxes
+- **Per-workspace**: `<workspace>/.sandbox/` — overrides/extends global
+
+By convention, `.sandbox/home/**/*` is sync'd into the sandbox. Any linux binaries in `.sandbox/home/bin/` will be executable by the agent user inside the sandbox.
+
+`.sandbox/config.yaml` provides fine-grained configuration for all containers, or for workspace specific containers.
+
+```yaml
+# Copy file globs into the container
+sync:
+    - src: ~/.oh-my-zsh/custom/themes/*.zsh-theme
+      dest: ~/.oh-my-zsh/custom/themes/
+
+env:
+    NODE_ENV: development
+    GITHUB_TOKEN: $GITHUB_TOKEN # expanded from host env
+
+firewall:
+    allow:
+        - domain: api.example.com
+        - cidr: 10.0.0.0/8
+
+# Run shell commands whenever the config or any sync'd files change
+on_sync:
+    - cmd: npm install -g my-tool
+      name: install deps
+    - cmd: chmod 600 ~/.ssh/*
+      root: true
+```
+
+Whenever this config or any of the synced files change, the next command resynchronises it into the sandbox.
+
+See [specs/sandbox-config.spec.md](specs/sandbox-config.spec.md) for full details.
 
 ## What's in the container
 
@@ -70,7 +107,7 @@ sandbox sync project/
 
 ## Network allowlist
 
-The firewall allows outbound traffic to:
+By default, the firewall allows outbound traffic to:
 
 | Service    | Domains                                                                                                   |
 | ---------- | --------------------------------------------------------------------------------------------------------- |

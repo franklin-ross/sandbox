@@ -13,14 +13,6 @@ var rootCmd = &cobra.Command{
 	Long:         `Create, manage, and interact with Docker-based sandbox containers for Claude Code.`,
 	SilenceUsage:  true,
 	SilenceErrors: true,
-	Args:         cobra.MaximumNArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		if len(args) == 1 {
-			// sandbox <path> → open shell
-			return runShell(resolvePath(args[0]))
-		}
-		return cmd.Help()
-	},
 }
 
 func Execute() {

@@ -15,6 +15,14 @@ type SandboxConfig struct {
 	Sync     []SyncRule        `yaml:"sync"`
 	Env      map[string]string `yaml:"env"`
 	Firewall FirewallConfig    `yaml:"firewall"`
+	OnSync   []OnSyncHook      `yaml:"on_sync"`
+}
+
+// OnSyncHook describes a command to run inside the container after sync.
+type OnSyncHook struct {
+	Cmd  string `yaml:"cmd"`
+	Name string `yaml:"name"`
+	Root bool   `yaml:"root"`
 }
 
 // SyncRule describes a file to sync into the container.
@@ -112,6 +120,12 @@ firewall:
     # Playwright
     - domain: cdn.playwright.dev
     - domain: playwright.download.prss.microsoft.com
+
+# on_sync:
+#   - cmd: npm install
+#     name: install deps
+#   - cmd: chmod 600 ~/.ssh/*
+#     root: true
 `
 
 func parseConfigFile(path string) (*SandboxConfig, error) {
@@ -137,6 +151,17 @@ func parseConfigFile(path string) (*SandboxConfig, error) {
 		}
 	}
 	cfg.Firewall.Allow = valid
+
+	// Validate on_sync hooks
+	var validHooks []OnSyncHook
+	for _, h := range cfg.OnSync {
+		if strings.TrimSpace(h.Cmd) == "" {
+			fmt.Fprintf(os.Stderr, "warning: on_sync hook with empty cmd, skipping\n")
+			continue
+		}
+		validHooks = append(validHooks, h)
+	}
+	cfg.OnSync = validHooks
 
 	return &cfg, nil
 }
@@ -220,6 +245,10 @@ func mergeConfig(base, override *SandboxConfig) *SandboxConfig {
 	// Firewall: additive
 	result.Firewall.Allow = append(result.Firewall.Allow, base.Firewall.Allow...)
 	result.Firewall.Allow = append(result.Firewall.Allow, override.Firewall.Allow...)
+
+	// OnSync: additive (global first, then workspace)
+	result.OnSync = append(result.OnSync, base.OnSync...)
+	result.OnSync = append(result.OnSync, override.OnSync...)
 
 	return result
 }
