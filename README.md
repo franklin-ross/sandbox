@@ -15,6 +15,10 @@ The official Claude Code Docker sandbox has an opinionated auth flow that makes 
 
 ## Install
 
+Download the binary for your architecture from the releases page, rename it to `sandbox`, and put it somewhere on your $PATH.
+
+Or clone the repo and build from source:
+
 ```bash
 # Install sandbox binary to ~/bin
 task install
