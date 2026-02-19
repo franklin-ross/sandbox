@@ -10,35 +10,32 @@ The official Claude Code Docker sandbox has an opinionated auth flow that makes 
 - **No permission prompts** — `--dangerously-skip-permissions` by default, because the container IS the sandbox
 - **zsh shell at workspace root** — not dropped straight into Claude
 - **VSCode attachment** — `sandbox code .` opens VSCode remote into the container
+- **Configuration** — More/simpler configuration options
 
 ## Install
 
 ```bash
-# From the repo root
-task build:sandbox
-
-# Or install to $GOPATH/bin
-task install:sandbox
+# Install sandbox binary to ~/bin
+task install
 ```
 
 Requires Docker to be running.
 
 ## Usage
 
+On first launch, the Docker image will build automatically which may take some time.
+
+Claude credentials live inside the sandbox, so you'll need to log in once for each sandbox.
+
 ```bash
-# Start a sandbox and open a shell
-sandbox .
+# Global initialisation (run once)
+sandbox config init
 
-# Start without attaching
-sandbox start .
-sandbox start ~/projects/myapp
-
-# Open a shell in a running sandbox
+# Open a shell in a running sandbox in the current directory
 sandbox shell ~/projects/myapp
 
-# Open Claude (with --dangerously-skip-permissions)
-sandbox claude .
-
+# Open Claude in a directory (with --dangerously-skip-permissions)
+sandbox claude project/
 # Pass args through to Claude
 sandbox claude . -- -p "fix the failing tests"
 
@@ -48,51 +45,45 @@ sandbox code .
 # List running sandboxes
 sandbox ls
 
-# Stop and remove a sandbox
+# Stop a running sandbox
 sandbox stop .
+# Remove a sandbox (stops it first if running)
+sandbox rm .
 
-# Force rebuild the Docker image
-sandbox build
+# Forcibly copy files and update firewalls inside the sandbox
+# Other commands do this by default, so not usually necessary
+sandbox sync project/
 ```
-
-## First run
-
-On first launch, the Docker image will be built automatically. This takes a few minutes (Ubuntu + Node, Go, Rust, Ruby, Python).
-
-Log in to Claude:
-
-```bash
-sandbox shell .
-claude login
-```
-
-Credentials live inside the container. If you remove the container (`sandbox rm`), you'll need to log in again.
 
 ## What's in the container
 
-- Ubuntu 24.04
+- Debian Bookworm
 - zsh + Oh My Zsh
 - Node.js 22 + Yarn
 - Go 1.23
 - Rust (via rustup)
-- Ruby 3.3
+- Ruby
 - Python 3
 - Claude Code CLI
+- Chromium (for Karma / Playwright / Cypress)
 - ripgrep, jq, fzf, tmux, git
 
 ## Network allowlist
 
 The firewall allows outbound traffic to:
 
-| Service                 | Domains                                                                           |
-| ----------------------- | --------------------------------------------------------------------------------- |
-| Claude API              | api.anthropic.com, api.claude.ai, claude.ai                                       |
-| npm / Yarn / Bun / pnpm | registry.npmjs.org, registry.yarnpkg.com, registry.bun.sh, registry.npmmirror.com |
-| Go                      | proxy.golang.org, sum.golang.org, storage.googleapis.com                          |
-| Rust                    | crates.io, static.crates.io, static.rust-lang.org                                 |
-| Ruby                    | rubygems.org                                                                      |
-| PyPI                    | pypi.org, files.pythonhosted.org                                                  |
-| GitHub                  | github.com, api.github.com, \*.githubusercontent.com                              |
+| Service    | Domains                                                                                                   |
+| ---------- | --------------------------------------------------------------------------------------------------------- |
+| Claude API | api.anthropic.com, claude.ai, statsig.anthropic.com, sentry.io                                            |
+| npm / Yarn | registry.npmjs.org, registry.yarnpkg.com, repo.yarnpkg.com, registry.npmmirror.com                        |
+| Go         | proxy.golang.org, sum.golang.org, storage.googleapis.com                                                  |
+| Rust       | crates.io, static.crates.io, index.crates.io, static.rust-lang.org                                        |
+| Ruby       | rubygems.org, api.rubygems.org, index.rubygems.org                                                        |
+| PyPI       | pypi.org, files.pythonhosted.org                                                                          |
+| GitHub     | github.com (SSH+HTTP), api.github.com, raw/objects/codeload/pkg-containers.githubusercontent.com, ghcr.io |
+| CDNs       | cdn.jsdelivr.net, dl-cdn.alpinelinux.org, deb.nodesource.com                                              |
+| Cypress    | download.cypress.io, cdn.cypress.io                                                                       |
+| Playwright | cdn.playwright.dev, playwright.download.prss.microsoft.com                                                |
 
 Everything else is blocked. DNS is allowed so domains can be resolved at container start time.
 
@@ -105,5 +96,3 @@ The Docker image files are embedded in the `sandbox` binary via `go:embed`. When
 3. Runs the container with `--cap-add=NET_ADMIN` (for iptables)
 4. Mounts your workspace into the container
 5. The entrypoint sets up iptables firewall rules, then sleeps
-
-You then interact via `sandbox shell`, `sandbox claude`, or `sandbox code`.
