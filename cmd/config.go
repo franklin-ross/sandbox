@@ -319,6 +319,14 @@ source $ZSH/oh-my-zsh.sh
 # in the container on start. They need to be linux binaries to run.
 export PATH="$HOME/bin:$PATH"
 
+# Rust
+[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
+
+# nvm
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+[ -s "$NVM_DIR/bash_completion" ] && . "$NVM_DIR/bash_completion"
+
 # Tool completions
 eval "$(task --completion zsh)"
 

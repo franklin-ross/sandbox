@@ -1,6 +1,5 @@
 FROM debian:bookworm
 
-ARG NODE_VERSION=22
 ARG GO_VERSION=1.23.6
 ARG TARGETARCH
 
@@ -20,14 +19,6 @@ RUN apt-get update && apt-get install -y \
     ruby ruby-dev \
     && rm -rf /var/cache/apt/archives/* /var/lib/apt/lists/*
 
-# Node.js via NodeSource
-RUN curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash - \
-    && apt-get install -y nodejs \
-    && rm -rf /var/lib/apt/lists/*
-
-# Yarn
-RUN corepack enable && corepack prepare yarn@stable --activate
-
 # Go (arch-aware)
 RUN curl -fsSL https://go.dev/dl/go${GO_VERSION}.linux-${TARGETARCH}.tar.gz | tar -C /usr/local -xz
 ENV PATH="/usr/local/go/bin:${PATH}"
@@ -46,7 +37,15 @@ RUN useradd -m -s /bin/zsh -u ${HOST_UID} agent \
     && echo "agent ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
 USER agent
 
-# Install Rust as agent user
+# Go workspace
+ENV GOPATH="/home/agent/go"
+ENV PATH="${GOPATH}/bin:${PATH}"
+RUN mkdir -p /home/agent/go
+
+# Oh My Zsh first (creates .zshrc that later install scripts can append to)
+RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+
+# Rust
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/home/agent/.cargo/bin:${PATH}"
 
@@ -54,13 +53,17 @@ ENV PATH="/home/agent/.cargo/bin:${PATH}"
 RUN curl -fsSL https://claude.ai/install.sh | bash
 ENV PATH="/home/agent/.local/bin:${PATH}"
 
-# Go workspace
-ENV GOPATH="/home/agent/go"
-ENV PATH="${GOPATH}/bin:${PATH}"
-RUN mkdir -p /home/agent/go
-
-# Oh My Zsh (config init writes .zshrc to ~/.sandbox/home/, synced at start)
-RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+# nvm + Node.js + Yarn
+ENV NVM_DIR="/home/agent/.nvm"
+ENV COREPACK_ENABLE_AUTO_PIN=0
+RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash \
+    && . "$NVM_DIR/nvm.sh" \
+    && nvm install --lts \
+    && nvm alias default lts/* \
+    && corepack enable \
+    && corepack prepare yarn@stable --activate \
+    && ln -s "$NVM_DIR/versions/node/$(node -v)" "$NVM_DIR/current"
+ENV PATH="/home/agent/.nvm/current/bin:${PATH}"
 
 # Firewall + entrypoint
 USER root
