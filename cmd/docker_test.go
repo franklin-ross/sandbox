@@ -19,9 +19,9 @@ func TestContainerName(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
-			got := containerName(tt.path)
+			got := ContainerName(tt.path)
 			if got != tt.want {
-				t.Errorf("containerName(%q) = %q, want %q", tt.path, got, tt.want)
+				t.Errorf("ContainerName(%q) = %q, want %q", tt.path, got, tt.want)
 			}
 		})
 	}
@@ -30,8 +30,8 @@ func TestContainerName(t *testing.T) {
 func TestContainerNameCollision(t *testing.T) {
 	// Two different paths with the same basename produce the same container
 	// name. This documents a known limitation — callers should be aware.
-	a := containerName("/projects/a/myapp")
-	b := containerName("/projects/b/myapp")
+	a := ContainerName("/projects/a/myapp")
+	b := ContainerName("/projects/b/myapp")
 	if a != b {
 		t.Fatalf("expected collision but got %q vs %q", a, b)
 	}
@@ -40,9 +40,9 @@ func TestContainerNameCollision(t *testing.T) {
 func TestContainerNameRootPath(t *testing.T) {
 	// filepath.Base("/") returns "/" which produces an invalid Docker
 	// container name. Document this edge case.
-	got := containerName("/")
+	got := ContainerName("/")
 	if got != "sandbox-/" {
-		t.Errorf("containerName(%q) = %q, want %q", "/", got, "sandbox-/")
+		t.Errorf("ContainerName(%q) = %q, want %q", "/", got, "sandbox-/")
 	}
 	// NOTE: Docker would reject this name at runtime. The production code
 	// does not guard against this because resolvePath always produces a
@@ -51,9 +51,9 @@ func TestContainerNameRootPath(t *testing.T) {
 
 func TestResolvePath(t *testing.T) {
 	// Relative path should resolve to absolute
-	got := resolvePath(".")
+	got := ResolvePath(".")
 	if !filepath.IsAbs(got) {
-		t.Errorf("resolvePath(\".\") = %q, want absolute path", got)
+		t.Errorf("ResolvePath(\".\") = %q, want absolute path", got)
 	}
 
 	cwd, err := os.Getwd()
@@ -61,13 +61,13 @@ func TestResolvePath(t *testing.T) {
 		t.Fatal(err)
 	}
 	if got != cwd {
-		t.Errorf("resolvePath(\".\") = %q, want %q", got, cwd)
+		t.Errorf("ResolvePath(\".\") = %q, want %q", got, cwd)
 	}
 
 	// Absolute path should pass through
-	got = resolvePath("/tmp/test")
+	got = ResolvePath("/tmp/test")
 	if got != "/tmp/test" {
-		t.Errorf("resolvePath(\"/tmp/test\") = %q, want \"/tmp/test\"", got)
+		t.Errorf("ResolvePath(\"/tmp/test\") = %q, want \"/tmp/test\"", got)
 	}
 }
 
@@ -77,10 +77,10 @@ func TestResolvePathRelativeSubdir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := resolvePath("subdir/nested")
+	got := ResolvePath("subdir/nested")
 	want := filepath.Join(cwd, "subdir/nested")
 	if got != want {
-		t.Errorf("resolvePath(\"subdir/nested\") = %q, want %q", got, want)
+		t.Errorf("ResolvePath(\"subdir/nested\") = %q, want %q", got, want)
 	}
 }
 
@@ -97,9 +97,9 @@ func TestContainerNameSpecialChars(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.path, func(t *testing.T) {
-			got := containerName(tt.path)
+			got := ContainerName(tt.path)
 			if got != tt.want {
-				t.Errorf("containerName(%q) = %q, want %q", tt.path, got, tt.want)
+				t.Errorf("ContainerName(%q) = %q, want %q", tt.path, got, tt.want)
 			}
 		})
 	}
@@ -108,7 +108,7 @@ func TestContainerNameSpecialChars(t *testing.T) {
 func TestContainerNameWithSpaces(t *testing.T) {
 	// Paths with spaces produce container names with spaces, which Docker
 	// would reject. Documents this limitation.
-	got := containerName("/home/user/my project")
+	got := ContainerName("/home/user/my project")
 	if got != "sandbox-my project" {
 		t.Errorf("containerName with spaces = %q, want %q", got, "sandbox-my project")
 	}
@@ -120,9 +120,9 @@ func TestFindSandboxRoot(t *testing.T) {
 		dir := t.TempDir()
 		os.MkdirAll(filepath.Join(dir, ".sandbox"), 0755)
 
-		got := findSandboxRoot(dir)
+		got := FindSandboxRoot(dir)
 		if got != dir {
-			t.Errorf("findSandboxRoot(%q) = %q, want %q", dir, got, dir)
+			t.Errorf("FindSandboxRoot(%q) = %q, want %q", dir, got, dir)
 		}
 	})
 
@@ -132,9 +132,9 @@ func TestFindSandboxRoot(t *testing.T) {
 		child := filepath.Join(parent, "worktree", "feature-x")
 		os.MkdirAll(child, 0755)
 
-		got := findSandboxRoot(child)
+		got := FindSandboxRoot(child)
 		if got != parent {
-			t.Errorf("findSandboxRoot(%q) = %q, want %q", child, got, parent)
+			t.Errorf("FindSandboxRoot(%q) = %q, want %q", child, got, parent)
 		}
 	})
 
@@ -144,9 +144,9 @@ func TestFindSandboxRoot(t *testing.T) {
 		child := filepath.Join(gp, "a", "b", "c")
 		os.MkdirAll(child, 0755)
 
-		got := findSandboxRoot(child)
+		got := FindSandboxRoot(child)
 		if got != gp {
-			t.Errorf("findSandboxRoot(%q) = %q, want %q", child, got, gp)
+			t.Errorf("FindSandboxRoot(%q) = %q, want %q", child, got, gp)
 		}
 	})
 
@@ -158,9 +158,9 @@ func TestFindSandboxRoot(t *testing.T) {
 		child := filepath.Join(parent, "deep")
 		os.MkdirAll(child, 0755)
 
-		got := findSandboxRoot(child)
+		got := FindSandboxRoot(child)
 		if got != parent {
-			t.Errorf("findSandboxRoot(%q) = %q, want %q (closest parent)", child, got, parent)
+			t.Errorf("FindSandboxRoot(%q) = %q, want %q (closest parent)", child, got, parent)
 		}
 	})
 
@@ -173,7 +173,7 @@ func TestFindSandboxRoot(t *testing.T) {
 		child := filepath.Join(tmpHome, "projects", "foo")
 		os.MkdirAll(child, 0755)
 
-		got := findSandboxRoot(child)
+		got := FindSandboxRoot(child)
 		if got != "" {
 			t.Errorf("findSandboxRoot should skip ~/.sandbox, got %q", got)
 		}
@@ -184,9 +184,9 @@ func TestFindSandboxRoot(t *testing.T) {
 		child := filepath.Join(dir, "a", "b")
 		os.MkdirAll(child, 0755)
 
-		got := findSandboxRoot(child)
+		got := FindSandboxRoot(child)
 		if got != "" {
-			t.Errorf("findSandboxRoot(%q) = %q, want empty", child, got)
+			t.Errorf("FindSandboxRoot(%q) = %q, want empty", child, got)
 		}
 	})
 }
@@ -197,7 +197,7 @@ func TestResolveWorkspace(t *testing.T) {
 		child := filepath.Join(dir, "project")
 		os.MkdirAll(child, 0755)
 
-		root, workDir := resolveWorkspace(child)
+		root, workDir := ResolveWorkspace(child)
 		if root != child {
 			t.Errorf("sandboxRoot = %q, want %q", root, child)
 		}
@@ -212,7 +212,7 @@ func TestResolveWorkspace(t *testing.T) {
 		child := filepath.Join(parent, "worktree", "feature")
 		os.MkdirAll(child, 0755)
 
-		root, workDir := resolveWorkspace(child)
+		root, workDir := ResolveWorkspace(child)
 		if root != parent {
 			t.Errorf("sandboxRoot = %q, want %q", root, parent)
 		}
@@ -225,7 +225,7 @@ func TestResolveWorkspace(t *testing.T) {
 		dir := t.TempDir()
 		os.MkdirAll(filepath.Join(dir, ".sandbox"), 0755)
 
-		root, workDir := resolveWorkspace(dir)
+		root, workDir := ResolveWorkspace(dir)
 		if root != dir {
 			t.Errorf("sandboxRoot = %q, want %q", root, dir)
 		}
@@ -243,7 +243,7 @@ func TestResolveWorkspace(t *testing.T) {
 		flagHere = true
 		defer func() { flagHere = false }()
 
-		root, workDir := resolveWorkspace(child)
+		root, workDir := ResolveWorkspace(child)
 		if root != child {
 			t.Errorf("with --here: sandboxRoot = %q, want %q", root, child)
 		}

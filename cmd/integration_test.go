@@ -51,7 +51,7 @@ func buildTestImage(t *testing.T) {
 	}
 
 	cmd := exec.Command("docker", "build",
-		"--label", "sandbox.image.hash="+imageHash(),
+		"--label", "sandbox.image.hash="+ImageHash(),
 		"-t", testImageName, dir)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -137,22 +137,22 @@ func TestContainerLifecycle(t *testing.T) {
 	buildTestImage(t)
 
 	wsPath := t.TempDir()
-	name := containerName(wsPath)
+	name := ContainerName(wsPath)
 	removeContainer(t, name)
 
 	// Container should not exist yet
-	if containerExists(name) {
+	if ContainerExists(name) {
 		t.Fatal("container exists before start")
 	}
-	if isRunning(name) {
+	if IsRunning(name) {
 		t.Fatal("container running before start")
 	}
 
 	// Start it
-	err := dockerRun("run", "-d",
+	err := DockerRun("run", "-d",
 		"--name", name,
-		"--label", labelSel,
-		"--label", labelWs+"="+wsPath,
+		"--label", LabelSel,
+		"--label", LabelWs+"="+wsPath,
 		"-v", wsPath+":"+wsPath,
 		testImageName)
 	if err != nil {
@@ -160,29 +160,29 @@ func TestContainerLifecycle(t *testing.T) {
 	}
 
 	// Should be running
-	if !containerExists(name) {
+	if !ContainerExists(name) {
 		t.Fatal("container does not exist after start")
 	}
-	if !isRunning(name) {
+	if !IsRunning(name) {
 		t.Fatal("container not running after start")
 	}
 
 	// Stop it — container should still exist but not be running
-	if err := dockerRun("stop", name); err != nil {
+	if err := DockerRun("stop", name); err != nil {
 		t.Fatalf("docker stop: %v", err)
 	}
-	if !containerExists(name) {
+	if !ContainerExists(name) {
 		t.Fatal("container should still exist after stop")
 	}
-	if isRunning(name) {
+	if IsRunning(name) {
 		t.Fatal("container should not be running after stop")
 	}
 
 	// Remove it — container should be gone
-	if err := dockerRun("rm", "-f", name); err != nil {
+	if err := DockerRun("rm", "-f", name); err != nil {
 		t.Fatalf("docker rm: %v", err)
 	}
-	if containerExists(name) {
+	if ContainerExists(name) {
 		t.Fatal("container exists after removal")
 	}
 }
@@ -195,11 +195,11 @@ func TestEnsureRunningIdempotent(t *testing.T) {
 	useTestConfig(t)
 
 	wsPath := t.TempDir()
-	name := containerName(wsPath)
+	name := ContainerName(wsPath)
 	removeContainer(t, name)
 
 	// First call should start
-	got, err := ensureRunning(wsPath)
+	got, err := EnsureRunning(wsPath)
 	if err != nil {
 		t.Fatalf("first ensureRunning: %v", err)
 	}
@@ -208,7 +208,7 @@ func TestEnsureRunningIdempotent(t *testing.T) {
 	}
 
 	// Second call should be a no-op and return the same name
-	got2, err := ensureRunning(wsPath)
+	got2, err := EnsureRunning(wsPath)
 	if err != nil {
 		t.Fatalf("second ensureRunning: %v", err)
 	}
@@ -223,10 +223,10 @@ func TestContainerExecSimple(t *testing.T) {
 	buildTestImage(t)
 
 	wsPath := t.TempDir()
-	name := containerName(wsPath)
+	name := ContainerName(wsPath)
 	removeContainer(t, name)
 
-	err := dockerRun("run", "-d",
+	err := DockerRun("run", "-d",
 		"--name", name,
 		"-v", wsPath+":"+wsPath,
 		testImageName)
@@ -250,7 +250,7 @@ func TestContainerWorkspaceMount(t *testing.T) {
 	buildTestImage(t)
 
 	wsPath := t.TempDir()
-	name := containerName(wsPath)
+	name := ContainerName(wsPath)
 	removeContainer(t, name)
 
 	// Write a file to the workspace
@@ -258,7 +258,7 @@ func TestContainerWorkspaceMount(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := dockerRun("run", "-d",
+	err := DockerRun("run", "-d",
 		"--name", name,
 		"-v", wsPath+":"+wsPath,
 		testImageName)
@@ -284,13 +284,13 @@ func TestEnsureRunningRestartsStoppedContainer(t *testing.T) {
 	useTestConfig(t)
 
 	wsPath := t.TempDir()
-	name := containerName(wsPath)
+	name := ContainerName(wsPath)
 	removeContainer(t, name)
 
 	// Start a container, write a marker file, then stop it
-	err := dockerRun("run", "-d",
+	err := DockerRun("run", "-d",
 		"--name", name,
-		"--label", labelSel,
+		"--label", LabelSel,
 		"-v", wsPath+":"+wsPath,
 		testImageName)
 	if err != nil {
@@ -303,27 +303,27 @@ func TestEnsureRunningRestartsStoppedContainer(t *testing.T) {
 		t.Fatalf("docker exec write marker: %v\n%s", err, out)
 	}
 
-	if err := dockerRun("stop", name); err != nil {
+	if err := DockerRun("stop", name); err != nil {
 		t.Fatalf("docker stop: %v", err)
 	}
 
 	// Container exists but is not running
-	if !containerExists(name) {
+	if !ContainerExists(name) {
 		t.Fatal("stopped container should still exist")
 	}
-	if isRunning(name) {
+	if IsRunning(name) {
 		t.Fatal("stopped container should not be running")
 	}
 
 	// ensureRunning should restart the same container, not replace it
-	got, err := ensureRunning(wsPath)
+	got, err := EnsureRunning(wsPath)
 	if err != nil {
 		t.Fatalf("ensureRunning after stop: %v", err)
 	}
 	if got != name {
 		t.Errorf("ensureRunning returned %q, want %q", got, name)
 	}
-	if !isRunning(name) {
+	if !IsRunning(name) {
 		t.Fatal("container should be running after ensureRunning restarted it")
 	}
 
@@ -343,10 +343,10 @@ func TestContainerWriteFromInsideVisibleOnHost(t *testing.T) {
 	buildTestImage(t)
 
 	wsPath := t.TempDir()
-	name := containerName(wsPath)
+	name := ContainerName(wsPath)
 	removeContainer(t, name)
 
-	err := dockerRun("run", "-d",
+	err := DockerRun("run", "-d",
 		"--name", name,
 		"-v", wsPath+":"+wsPath,
 		testImageName)
@@ -380,13 +380,13 @@ func TestContainerLabels(t *testing.T) {
 	buildTestImage(t)
 
 	wsPath := t.TempDir()
-	name := containerName(wsPath)
+	name := ContainerName(wsPath)
 	removeContainer(t, name)
 
-	err := dockerRun("run", "-d",
+	err := DockerRun("run", "-d",
 		"--name", name,
-		"--label", labelSel,
-		"--label", labelWs+"="+wsPath,
+		"--label", LabelSel,
+		"--label", LabelWs+"="+wsPath,
 		testImageName)
 	if err != nil {
 		t.Fatalf("docker run: %v", err)

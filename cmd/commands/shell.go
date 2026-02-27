@@ -1,6 +1,7 @@
-package cmd
+package commands
 
 import (
+	cmd "github.com/franklin-ross/sandbox/cmd"
 	"github.com/spf13/cobra"
 )
 
@@ -9,28 +10,28 @@ var shellCmd = &cobra.Command{
 	Short: "Open a zsh shell in the sandbox",
 	Long:  `Open an interactive zsh shell in the sandbox. Starts the sandbox if not running.`,
 	Args:  cobra.MaximumNArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(_ *cobra.Command, args []string) error {
 		wsPath := "."
 		if len(args) > 0 {
 			wsPath = args[0]
 		}
-		return runShell(resolvePath(wsPath))
+		return runShell(cmd.ResolvePath(wsPath))
 	},
 }
 
 func runShell(wsPath string) error {
-	sandboxRoot, workDir := resolveWorkspace(wsPath)
-	name, err := ensureRunning(sandboxRoot)
+	sandboxRoot, workDir := cmd.ResolveWorkspace(wsPath)
+	name, err := cmd.EnsureRunning(sandboxRoot)
 	if err != nil {
 		return err
 	}
-	cfg, err := loadConfig(sandboxRoot)
+	cfg, err := cmd.LoadConfig(sandboxRoot)
 	if err != nil {
 		return err
 	}
-	return dockerExec(name, workDir, cfg, "/bin/zsh")
+	return cmd.DockerExec(name, workDir, cfg, "/bin/zsh")
 }
 
 func init() {
-	rootCmd.AddCommand(shellCmd)
+	cmd.RootCmd.AddCommand(shellCmd)
 }

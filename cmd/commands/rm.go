@@ -1,8 +1,9 @@
-package cmd
+package commands
 
 import (
 	"fmt"
 
+	cmd "github.com/franklin-ross/sandbox/cmd"
 	"github.com/spf13/cobra"
 )
 
@@ -12,7 +13,7 @@ var rmCmd = &cobra.Command{
 	Use:   "rm [path]",
 	Short: "Remove a sandbox container",
 	Args:  cobra.MaximumNArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(_ *cobra.Command, args []string) error {
 		if rmName != "" {
 			return removeSandbox(rmName)
 		}
@@ -21,21 +22,19 @@ var rmCmd = &cobra.Command{
 		if len(args) > 0 {
 			wsPath = args[0]
 		}
-		wsPath = resolvePath(wsPath)
-		sandboxRoot, _ := resolveWorkspace(wsPath)
+		wsPath = cmd.ResolvePath(wsPath)
+		sandboxRoot, _ := cmd.ResolveWorkspace(wsPath)
 
 		if sandboxRoot != wsPath {
 			return fmt.Errorf("this directory uses a parent sandbox at %s\nRun 'sandbox rm' from %s instead", sandboxRoot, sandboxRoot)
 		}
 
-		name := containerName(sandboxRoot)
-		if containerExists(name) {
+		name := cmd.ContainerName(sandboxRoot)
+		if cmd.ContainerExists(name) {
 			return removeSandbox(name)
 		}
 
-		// Path-based lookup failed. Check if the raw argument matches a
-		// container name and hint the user toward --name.
-		if len(args) > 0 && containerExists(args[0]) {
+		if len(args) > 0 && cmd.ContainerExists(args[0]) {
 			fmt.Printf("No sandbox found for path %s\n", wsPath)
 			fmt.Printf("Did you mean: sandbox rm --name %s\n", args[0])
 			return nil
@@ -47,16 +46,16 @@ var rmCmd = &cobra.Command{
 }
 
 func removeSandbox(name string) error {
-	if !containerExists(name) {
+	if !cmd.ContainerExists(name) {
 		fmt.Printf("No sandbox named %s found\n", name)
 		return nil
 	}
-	if isRunning(name) {
-		if err := dockerRun("stop", name); err != nil {
+	if cmd.IsRunning(name) {
+		if err := cmd.DockerRun("stop", name); err != nil {
 			return fmt.Errorf("stop container: %w", err)
 		}
 	}
-	if err := dockerRun("rm", name); err != nil {
+	if err := cmd.DockerRun("rm", name); err != nil {
 		return fmt.Errorf("remove container: %w", err)
 	}
 	fmt.Printf("Sandbox %s removed\n", name)
@@ -65,5 +64,5 @@ func removeSandbox(name string) error {
 
 func init() {
 	rmCmd.Flags().StringVarP(&rmName, "name", "n", "", "remove sandbox by container name instead of path")
-	rootCmd.AddCommand(rmCmd)
+	cmd.RootCmd.AddCommand(rmCmd)
 }

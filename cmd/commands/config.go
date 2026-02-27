@@ -1,10 +1,11 @@
-package cmd
+package commands
 
 import (
 	"fmt"
 	"os"
 	"path/filepath"
 
+	cmd "github.com/franklin-ross/sandbox/cmd"
 	"github.com/spf13/cobra"
 )
 
@@ -19,7 +20,7 @@ var configInitCmd = &cobra.Command{
 	Short: "Initialize sandbox configuration",
 	Long:  `Create the default sandbox configuration file and home directory.`,
 	Args:  cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(_ *cobra.Command, args []string) error {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return fmt.Errorf("get home directory: %w", err)
@@ -48,7 +49,7 @@ var configInitCmd = &cobra.Command{
 		if configExists {
 			fmt.Printf("Already exists: %s\n", configPath)
 		} else {
-			if err := os.WriteFile(configPath, []byte(defaultConfigYAML), 0644); err != nil {
+			if err := os.WriteFile(configPath, []byte(cmd.DefaultConfigYAML), 0644); err != nil {
 				return fmt.Errorf("write config: %w", err)
 			}
 			fmt.Printf("Created %s\n", configPath)
@@ -57,7 +58,7 @@ var configInitCmd = &cobra.Command{
 		if zshrcExists {
 			fmt.Printf("Already exists: %s\n", zshrcPath)
 		} else {
-			if err := os.WriteFile(zshrcPath, []byte(defaultZshrc()), 0644); err != nil {
+			if err := os.WriteFile(zshrcPath, []byte(cmd.DefaultZshrc()), 0644); err != nil {
 				return fmt.Errorf("write .zshrc: %w", err)
 			}
 			fmt.Printf("Created %s\n", zshrcPath)
@@ -73,5 +74,5 @@ func fileExists(path string) bool {
 
 func init() {
 	configCmd.AddCommand(configInitCmd)
-	rootCmd.AddCommand(configCmd)
+	cmd.RootCmd.AddCommand(configCmd)
 }

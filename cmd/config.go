@@ -53,7 +53,7 @@ type SyncItem struct {
 	Owner string // "root:root" or "agent:agent"
 }
 
-const defaultConfigYAML = `# Sandbox configuration
+const DefaultConfigYAML = `# Sandbox configuration
 # Global: ~/.sandbox/config.yaml
 # Per-workspace: <workspace>/.sandbox/config.yaml
 
@@ -180,7 +180,7 @@ func validateFirewallEntry(e FirewallEntry) bool {
 	return true
 }
 
-func loadConfig(wsPath string) (*SandboxConfig, error) {
+func LoadConfig(wsPath string) (*SandboxConfig, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil, fmt.Errorf("get home directory: %w", err)
@@ -305,7 +305,7 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", "'\"'\"'") + "'"
 }
 
-func defaultZshrc() string {
+func DefaultZshrc() string {
 	theme := zshTheme()
 	if theme == "" {
 		theme = "robbyrussell"

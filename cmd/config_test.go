@@ -209,7 +209,7 @@ firewall:
   allow:
     - domain: example.com`), 0644)
 
-		cfg, err := loadConfig("/nonexistent")
+		cfg, err := LoadConfig("/nonexistent")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -245,7 +245,7 @@ firewall:
     - domain: custom.example.com
 `), 0644)
 
-		cfg, err := loadConfig(wsPath)
+		cfg, err := LoadConfig(wsPath)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -268,7 +268,7 @@ firewall:
 		tmpHome := t.TempDir()
 		t.Setenv("HOME", tmpHome)
 
-		_, err := loadConfig("/nonexistent")
+		_, err := LoadConfig("/nonexistent")
 		if err == nil {
 			t.Fatal("expected error when no config exists")
 		}
@@ -600,7 +600,7 @@ func TestDefaultZshrc(t *testing.T) {
 	t.Run("with theme", func(t *testing.T) {
 		t.Setenv("ZSH_THEME", "agnoster")
 
-		data := defaultZshrc()
+		data := DefaultZshrc()
 		if !strings.Contains(data, `ZSH_THEME="agnoster"`) {
 			t.Errorf("zshrc = %q, want agnoster theme", data)
 		}
@@ -613,7 +613,7 @@ func TestDefaultZshrc(t *testing.T) {
 		t.Setenv("ZSH_THEME", "")
 		t.Setenv("HOME", "/nonexistent-test-home")
 
-		data := defaultZshrc()
+		data := DefaultZshrc()
 		if !strings.Contains(data, `ZSH_THEME="robbyrussell"`) {
 			t.Errorf("zshrc = %q, want robbyrussell default", data)
 		}

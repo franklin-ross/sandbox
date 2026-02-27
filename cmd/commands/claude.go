@@ -1,8 +1,9 @@
-package cmd
+package commands
 
 import (
 	"strings"
 
+	cmd "github.com/franklin-ross/sandbox/cmd"
 	"github.com/spf13/cobra"
 )
 
@@ -17,29 +18,28 @@ Examples:
   sandbox claude ~/proj
   sandbox claude . -- -p "fix the tests"`,
 	DisableFlagParsing: true,
-	RunE: func(cmd *cobra.Command, args []string) error {
-		// Handle help manually since we disabled flag parsing
+	RunE: func(c *cobra.Command, args []string) error {
 		for _, a := range args {
 			if a == "-h" || a == "--help" {
-				return cmd.Help()
+				return c.Help()
 			}
 		}
 
 		wsPath, claudeArgs := parseClaudeArgs(args)
-		sandboxRoot, workDir := resolveWorkspace(wsPath)
+		sandboxRoot, workDir := cmd.ResolveWorkspace(wsPath)
 
-		name, err := ensureRunning(sandboxRoot)
+		name, err := cmd.EnsureRunning(sandboxRoot)
 		if err != nil {
 			return err
 		}
 
-		cfg, err := loadConfig(sandboxRoot)
+		cfg, err := cmd.LoadConfig(sandboxRoot)
 		if err != nil {
 			return err
 		}
 		execArgs := []string{"claude", "--dangerously-skip-permissions"}
 		execArgs = append(execArgs, claudeArgs...)
-		return dockerExec(name, workDir, cfg, execArgs...)
+		return cmd.DockerExec(name, workDir, cfg, execArgs...)
 	},
 }
 
@@ -68,9 +68,9 @@ func parseClaudeArgs(args []string) (string, []string) {
 		wsPath = positional[0]
 	}
 
-	return resolvePath(wsPath), claudeArgs
+	return cmd.ResolvePath(wsPath), claudeArgs
 }
 
 func init() {
-	rootCmd.AddCommand(claudeCmd)
+	cmd.RootCmd.AddCommand(claudeCmd)
 }

@@ -1,4 +1,4 @@
-package cmd
+package commands
 
 import (
 	"encoding/hex"
@@ -8,8 +8,6 @@ import (
 )
 
 func TestVSCodeRemoteURI(t *testing.T) {
-	// Mirrors the hex-encoding logic in codeCmd: the full container ID
-	// string is hex-encoded and embedded into the vscode-remote URI.
 	wsPath := "/home/user/projects/myapp"
 	tests := []struct {
 		containerID string
@@ -31,7 +29,6 @@ func TestVSCodeRemoteURI(t *testing.T) {
 				t.Errorf("URI missing workspace path suffix: %q", uri)
 			}
 
-			// Verify the hex portion round-trips back to the original ID
 			parts := strings.SplitN(uri, "+", 2)
 			hexPart := strings.TrimSuffix(parts[1], wsPath)
 			decoded, err := hex.DecodeString(hexPart)

@@ -1,8 +1,9 @@
-package cmd
+package commands
 
 import (
 	"fmt"
 
+	cmd "github.com/franklin-ross/sandbox/cmd"
 	"github.com/spf13/cobra"
 )
 
@@ -10,9 +11,9 @@ var buildCmd = &cobra.Command{
 	Use:   "build",
 	Short: "Force rebuild the sandbox image",
 	Args:  cobra.NoArgs,
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(_ *cobra.Command, args []string) error {
 		fmt.Println("Building sandbox image...")
-		if err := buildImage(imageHash()); err != nil {
+		if err := cmd.BuildImage(cmd.ImageHash()); err != nil {
 			return err
 		}
 		fmt.Println("Done.")
@@ -21,5 +22,5 @@ var buildCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.AddCommand(buildCmd)
+	cmd.RootCmd.AddCommand(buildCmd)
 }

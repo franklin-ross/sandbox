@@ -19,27 +19,27 @@ var dockerfile []byte
 
 var (
 	imageName = "sandbox"
-	labelSel  = "sandbox.managed=true"
-	labelWs   = "sandbox.workspace"
+	LabelSel  = "sandbox.managed=true"
+	LabelWs   = "sandbox.workspace"
 )
 
-// ensureStarted makes sure the container is running, creating or restarting it
+// EnsureStarted makes sure the container is running, creating or restarting it
 // as needed. It does NOT sync — callers handle that.
-func ensureStarted(wsPath string) (string, error) {
-	name := containerName(wsPath)
+func EnsureStarted(wsPath string) (string, error) {
+	name := ContainerName(wsPath)
 
-	if isRunning(name) || containerExists(name) {
+	if IsRunning(name) || ContainerExists(name) {
 		warnIfStale(name)
 	}
 
-	if isRunning(name) {
+	if IsRunning(name) {
 		return name, nil
 	}
 
 	// Restart a stopped container
-	if containerExists(name) {
+	if ContainerExists(name) {
 		fmt.Printf("Restarting sandbox for %s...\n", wsPath)
-		if err := dockerRun("start", name); err != nil {
+		if err := DockerRun("start", name); err != nil {
 			return "", fmt.Errorf("restart container: %w", err)
 		}
 		return name, nil
@@ -53,8 +53,8 @@ func ensureStarted(wsPath string) (string, error) {
 	cmd := exec.Command("docker", "run", "-d",
 		"--name", name,
 		"--hostname", name,
-		"--label", labelSel,
-		"--label", labelWs+"="+wsPath,
+		"--label", LabelSel,
+		"--label", LabelWs+"="+wsPath,
 		"--cap-add", "NET_ADMIN",
 		"-v", wsPath+":"+wsPath,
 		"-w", wsPath,
@@ -68,21 +68,21 @@ func ensureStarted(wsPath string) (string, error) {
 	return name, nil
 }
 
-// ensureRunning starts the container if needed and syncs files into it.
-func ensureRunning(wsPath string) (string, error) {
-	name, err := ensureStarted(wsPath)
+// EnsureRunning starts the container if needed and syncs files into it.
+func EnsureRunning(wsPath string) (string, error) {
+	name, err := EnsureStarted(wsPath)
 	if err != nil {
 		return "", err
 	}
-	if err := syncContainer(name, wsPath, false); err != nil {
+	if err := SyncContainer(name, wsPath, false); err != nil {
 		return "", err
 	}
 	fmt.Println("Sandbox ready")
 	return name, nil
 }
 
-// imageHash returns a hash of all inputs that affect the built image.
-func imageHash() string {
+// ImageHash returns a hash of all inputs that affect the built image.
+func ImageHash() string {
 	h := sha256.New()
 	h.Write(dockerfile)
 	h.Write(firewallScript)
@@ -92,7 +92,7 @@ func imageHash() string {
 }
 
 func ensureImage() error {
-	hash := imageHash()
+	hash := ImageHash()
 	if imageExists() {
 		// Check if the image was built from the same inputs.
 		out, err := exec.Command("docker", "inspect", "-f",
@@ -104,10 +104,10 @@ func ensureImage() error {
 	} else {
 		fmt.Println("Building sandbox image (first time)...")
 	}
-	return buildImage(hash)
+	return BuildImage(hash)
 }
 
-func buildImage(hash string) error {
+func BuildImage(hash string) error {
 	dir, err := os.MkdirTemp("", "sandbox-build-*")
 	if err != nil {
 		return fmt.Errorf("mkdtemp: %w", err)
@@ -154,7 +154,7 @@ func buildImage(hash string) error {
 	return nil
 }
 
-func dockerExec(container, workdir string, cfg *SandboxConfig, args ...string) error {
+func DockerExec(container, workdir string, cfg *SandboxConfig, args ...string) error {
 	cmdArgs := []string{"exec", "-it", "-w", workdir}
 
 	// Pass through TERM so colors work in the container shell
@@ -239,7 +239,7 @@ func warnIfStale(container string) {
 	}
 }
 
-func isRunning(name string) bool {
+func IsRunning(name string) bool {
 	out, err := exec.Command("docker", "inspect", "-f", "{{.State.Running}}", name).Output()
 	if err != nil {
 		return false
@@ -247,7 +247,7 @@ func isRunning(name string) bool {
 	return strings.TrimSpace(string(out)) == "true"
 }
 
-func containerExists(name string) bool {
+func ContainerExists(name string) bool {
 	return exec.Command("docker", "inspect", name).Run() == nil
 }
 
@@ -255,14 +255,14 @@ func imageExists() bool {
 	return exec.Command("docker", "image", "inspect", imageName).Run() == nil
 }
 
-func dockerRun(args ...string) error {
+func DockerRun(args ...string) error {
 	cmd := exec.Command("docker", args...)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
 
-func containerName(wsPath string) string {
+func ContainerName(wsPath string) string {
 	return "sandbox-" + filepath.Base(wsPath)
 }
 
@@ -293,7 +293,7 @@ func zshTheme() string {
 	return ""
 }
 
-func resolvePath(p string) string {
+func ResolvePath(p string) string {
 	abs, err := filepath.Abs(p)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "sandbox: resolve path: %v\n", err)
@@ -302,10 +302,10 @@ func resolvePath(p string) string {
 	return abs
 }
 
-// findSandboxRoot walks up from startPath looking for a directory containing
+// FindSandboxRoot walks up from startPath looking for a directory containing
 // .sandbox/. The user-level ~/.sandbox/ is excluded since it holds global
 // config, not a workspace sandbox.
-func findSandboxRoot(startPath string) string {
+func FindSandboxRoot(startPath string) string {
 	home, _ := os.UserHomeDir()
 	dir := startPath
 	for {
@@ -323,15 +323,15 @@ func findSandboxRoot(startPath string) string {
 	}
 }
 
-// resolveWorkspace determines the sandbox root and working directory for a
+// ResolveWorkspace determines the sandbox root and working directory for a
 // command. It walks up from path looking for a parent with .sandbox/. When
 // --here is set the given path is used directly.
 // Returns (sandboxRoot, workDir).
-func resolveWorkspace(path string) (string, string) {
+func ResolveWorkspace(path string) (string, string) {
 	if flagHere {
 		return path, path
 	}
-	root := findSandboxRoot(path)
+	root := FindSandboxRoot(path)
 	if root == "" {
 		return path, path
 	}

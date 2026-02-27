@@ -9,8 +9,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-
-	"github.com/spf13/cobra"
 )
 
 //go:embed image/init-firewall.sh
@@ -18,32 +16,6 @@ var firewallScript []byte
 
 //go:embed image/entrypoint.sh
 var entrypointScript []byte
-
-// Not really necessary because we sync on start
-var syncCmd = &cobra.Command{
-	Use:   "sync [path]",
-	Short: "Force-sync all files into a sandbox",
-	Long:  `Push all configured files into a sandbox container, even if they haven't changed. Starts the sandbox if not running.`,
-	Args:  cobra.MaximumNArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
-		wsPath := "."
-		if len(args) > 0 {
-			wsPath = args[0]
-		}
-		wsPath = resolvePath(wsPath)
-		sandboxRoot, _ := resolveWorkspace(wsPath)
-
-		name, err := ensureStarted(sandboxRoot)
-		if err != nil {
-			return err
-		}
-		return syncContainer(name, sandboxRoot, true)
-	},
-}
-
-func init() {
-	rootCmd.AddCommand(syncCmd)
-}
 
 // syncStatus prints a status line that overwrites itself.
 func syncStatus(msg string) {
@@ -102,7 +74,7 @@ func syncItems(container string, items []SyncItem) error {
 
 // buildSyncManifest builds the list of non-firewall items to sync into the
 // container. Firewall rules are resolved and synced separately (in parallel)
-// by syncContainer.
+// by SyncContainer.
 func buildSyncManifest(cfg *SandboxConfig) ([]SyncItem, error) {
 	var items []SyncItem
 
@@ -214,10 +186,10 @@ func buildSyncManifest(cfg *SandboxConfig) ([]SyncItem, error) {
 	return items, nil
 }
 
-// syncContainer builds the sync manifest and resolves firewall DNS in parallel,
+// SyncContainer builds the sync manifest and resolves firewall DNS in parallel,
 // then pushes all items into the container and applies firewall rules.
-func syncContainer(name, wsPath string, force bool) error {
-	cfg, err := loadConfig(wsPath)
+func SyncContainer(name, wsPath string, force bool) error {
+	cfg, err := LoadConfig(wsPath)
 	if err != nil {
 		return err
 	}

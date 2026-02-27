@@ -1,4 +1,4 @@
-package cmd
+package commands
 
 import (
 	"path/filepath"
@@ -10,7 +10,7 @@ func TestParseClaudeArgs(t *testing.T) {
 	tests := []struct {
 		name       string
 		args       []string
-		wantPath   string // just the basename, since resolvePath makes it absolute
+		wantPath   string
 		wantClaude []string
 	}{
 		{
@@ -35,7 +35,7 @@ func TestParseClaudeArgs(t *testing.T) {
 			name:       "flags without separator are positional and ignored",
 			args:       []string{"-p", "do stuff"},
 			wantPath:   ".",
-			wantClaude: nil, // no "--" so nothing goes to claudeArgs; "-p" starts with "-" so not used as path
+			wantClaude: nil,
 		},
 		{
 			name:       "separator with flags and default path",
@@ -55,9 +55,7 @@ func TestParseClaudeArgs(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			gotPath, gotClaude := parseClaudeArgs(tt.args)
 
-			// Check path (resolvePath makes things absolute, so compare appropriately)
 			if tt.wantPath == "." {
-				// Should resolve to cwd
 				if !filepath.IsAbs(gotPath) {
 					t.Errorf("path = %q, want absolute", gotPath)
 				}
@@ -65,7 +63,6 @@ func TestParseClaudeArgs(t *testing.T) {
 				t.Errorf("path = %q, want %q", gotPath, tt.wantPath)
 			}
 
-			// Check claude args
 			if !stringSliceEqual(gotClaude, tt.wantClaude) {
 				t.Errorf("claudeArgs = %v, want %v", gotClaude, tt.wantClaude)
 			}
@@ -74,8 +71,6 @@ func TestParseClaudeArgs(t *testing.T) {
 }
 
 func TestParseClaudeArgsMultipleSeparators(t *testing.T) {
-	// Both "--" are consumed as separators; everything after the first
-	// separator goes to claude args (subsequent "--" are also swallowed)
 	args := []string{"/tmp/proj", "--", "--", "-p", "hello"}
 	path, claudeArgs := parseClaudeArgs(args)
 
@@ -90,7 +85,6 @@ func TestParseClaudeArgsMultipleSeparators(t *testing.T) {
 }
 
 func TestParseClaudeArgsOnlySeparator(t *testing.T) {
-	// Just "--" with nothing else: default path, empty claude args
 	args := []string{"--"}
 	path, claudeArgs := parseClaudeArgs(args)
 
@@ -103,11 +97,9 @@ func TestParseClaudeArgsOnlySeparator(t *testing.T) {
 }
 
 func TestParseClaudeArgsEmptyString(t *testing.T) {
-	// An empty string arg doesn't start with "-", so it's treated as the path
 	args := []string{""}
 	path, claudeArgs := parseClaudeArgs(args)
 
-	// resolvePath("") resolves to cwd
 	if !filepath.IsAbs(path) {
 		t.Errorf("path = %q, want absolute", path)
 	}
@@ -117,8 +109,6 @@ func TestParseClaudeArgsEmptyString(t *testing.T) {
 }
 
 func TestParseClaudeArgsExtraPositionalIgnored(t *testing.T) {
-	// Only the first non-flag positional arg is used as the path;
-	// additional positional args before "--" are silently dropped.
 	args := []string{"/tmp/proj", "extra-arg", "--", "-p", "hello"}
 	path, claudeArgs := parseClaudeArgs(args)
 
@@ -135,7 +125,6 @@ func TestParseClaudeArgsDoesNotTreatFlagAsPath(t *testing.T) {
 	args := []string{"-p", "hello"}
 	path, _ := parseClaudeArgs(args)
 
-	// -p starts with "-", so it should not be treated as a path
 	if strings.HasSuffix(path, "-p") {
 		t.Errorf("flag -p was incorrectly treated as a path: %q", path)
 	}

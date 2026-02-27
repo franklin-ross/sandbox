@@ -1,4 +1,4 @@
-package cmd
+package commands
 
 import (
 	"encoding/hex"
@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 
+	cmd "github.com/franklin-ross/sandbox/cmd"
 	"github.com/spf13/cobra"
 )
 
@@ -14,20 +15,19 @@ var codeCmd = &cobra.Command{
 	Use:   "code [path]",
 	Short: "Open VSCode attached to the sandbox",
 	Args:  cobra.MaximumNArgs(1),
-	RunE: func(cmd *cobra.Command, args []string) error {
+	RunE: func(_ *cobra.Command, args []string) error {
 		wsPath := "."
 		if len(args) > 0 {
 			wsPath = args[0]
 		}
-		wsPath = resolvePath(wsPath)
-		sandboxRoot, workDir := resolveWorkspace(wsPath)
+		wsPath = cmd.ResolvePath(wsPath)
+		sandboxRoot, workDir := cmd.ResolveWorkspace(wsPath)
 
-		name, err := ensureRunning(sandboxRoot)
+		name, err := cmd.EnsureRunning(sandboxRoot)
 		if err != nil {
 			return err
 		}
 
-		// Get container ID for VSCode remote URI
 		out, err := exec.Command("docker", "inspect", "-f", "{{.Id}}", name).Output()
 		if err != nil {
 			return fmt.Errorf("get container id: %w", err)
@@ -45,5 +45,5 @@ var codeCmd = &cobra.Command{
 }
 
 func init() {
-	rootCmd.AddCommand(codeCmd)
+	cmd.RootCmd.AddCommand(codeCmd)
 }
