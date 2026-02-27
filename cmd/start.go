@@ -17,12 +17,13 @@ var startCmd = &cobra.Command{
 			wsPath = args[0]
 		}
 		wsPath = resolvePath(wsPath)
+		sandboxRoot, _ := resolveWorkspace(wsPath)
 
-		name, err := ensureRunning(wsPath)
+		name, err := ensureRunning(sandboxRoot)
 		if err != nil {
 			return err
 		}
-		fmt.Printf("Sandbox %s running for %s\n", name, wsPath)
+		fmt.Printf("Sandbox %s running for %s\n", name, sandboxRoot)
 		return nil
 	},
 }

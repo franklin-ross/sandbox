@@ -26,19 +26,20 @@ Examples:
 		}
 
 		wsPath, claudeArgs := parseClaudeArgs(args)
+		sandboxRoot, workDir := resolveWorkspace(wsPath)
 
-		name, err := ensureRunning(wsPath)
+		name, err := ensureRunning(sandboxRoot)
 		if err != nil {
 			return err
 		}
 
-		cfg, err := loadConfig(wsPath)
+		cfg, err := loadConfig(sandboxRoot)
 		if err != nil {
 			return err
 		}
 		execArgs := []string{"claude", "--dangerously-skip-permissions"}
 		execArgs = append(execArgs, claudeArgs...)
-		return dockerExec(name, wsPath, cfg, execArgs...)
+		return dockerExec(name, workDir, cfg, execArgs...)
 	},
 }
 

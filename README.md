@@ -10,6 +10,7 @@ The official Claude Code Docker sandbox has an opinionated auth flow that makes 
 - **No permission prompts** — `--dangerously-skip-permissions` by default, because the container IS the sandbox
 - **zsh shell at workspace root** — not dropped straight into Claude
 - **VSCode attachment** — `sandbox code .` opens VSCode remote into the container
+- **Auto-sync files** — files in `.sandbox/user/` automatically sync over to the container user directory, including binaries
 - **Configuration** — More/simpler configuration options
 - **Post-sync hooks** — run commands inside the container after every sync (e.g., `npm install -g some-tool`)
 
@@ -57,6 +58,29 @@ sandbox rm .
 # the sandbox (Not usually necessary to call directly.)
 sandbox sync project/
 ```
+
+## Parent sandbox discovery
+
+When you run a command (e.g. `sandbox claude .`), the tool walks up the directory tree looking for a `.sandbox/` directory. If one is found in a parent, that parent is used as the sandbox root — the container is named after it, its config is loaded, and its directory is mounted. The command itself still runs at your current directory inside the container.
+
+This is useful for monorepos and git worktrees: put `.sandbox/` in the project root and run `sandbox claude` from any subdirectory or worktree without needing separate sandboxes.
+
+```bash
+# Given: /home/user/myproject/.sandbox/config.yaml
+cd /home/user/myproject/.worktree/feature-branch
+sandbox claude .
+# → Uses sandbox from /home/user/myproject, runs claude in the worktree dir
+```
+
+The user-level `~/.sandbox/` is never treated as a parent sandbox (it's global config only).
+
+Use `--here` to skip parent discovery and force a sandbox at the exact path:
+
+```bash
+sandbox --here claude .
+```
+
+Destructive commands (`stop`, `rm`) refuse to operate from a child directory to prevent accidents — run them from the sandbox root instead.
 
 ## Configuration
 

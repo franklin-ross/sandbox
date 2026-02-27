@@ -20,8 +20,9 @@ var codeCmd = &cobra.Command{
 			wsPath = args[0]
 		}
 		wsPath = resolvePath(wsPath)
+		sandboxRoot, workDir := resolveWorkspace(wsPath)
 
-		name, err := ensureRunning(wsPath)
+		name, err := ensureRunning(sandboxRoot)
 		if err != nil {
 			return err
 		}
@@ -33,9 +34,9 @@ var codeCmd = &cobra.Command{
 		}
 		id := strings.TrimSpace(string(out))
 		hexID := hex.EncodeToString([]byte(id))
-		uri := fmt.Sprintf("vscode-remote://attached-container+%s%s", hexID, wsPath)
+		uri := fmt.Sprintf("vscode-remote://attached-container+%s%s", hexID, workDir)
 
-		fmt.Printf("Opening VSCode for %s...\n", wsPath)
+		fmt.Printf("Opening VSCode for %s...\n", workDir)
 		c := exec.Command("code", "--folder-uri", uri)
 		c.Stdout = os.Stdout
 		c.Stderr = os.Stderr

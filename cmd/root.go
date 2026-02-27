@@ -7,6 +7,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var flagHere bool
+
 var rootCmd = &cobra.Command{
 	Use:          "sandbox",
 	Short:        "Manage sandboxed Claude Code containers",
@@ -20,4 +22,8 @@ func Execute() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+func init() {
+	rootCmd.PersistentFlags().BoolVar(&flagHere, "here", false, "use the exact path as the sandbox root (don't search parent directories)")
 }

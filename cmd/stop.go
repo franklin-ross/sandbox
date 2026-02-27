@@ -16,10 +16,15 @@ var stopCmd = &cobra.Command{
 			wsPath = args[0]
 		}
 		wsPath = resolvePath(wsPath)
+		sandboxRoot, _ := resolveWorkspace(wsPath)
 
-		name := containerName(wsPath)
+		if sandboxRoot != wsPath {
+			return fmt.Errorf("this directory uses a parent sandbox at %s\nRun 'sandbox stop' from %s instead", sandboxRoot, sandboxRoot)
+		}
+
+		name := containerName(sandboxRoot)
 		if !isRunning(name) {
-			fmt.Printf("No sandbox running for %s\n", wsPath)
+			fmt.Printf("No sandbox running for %s\n", sandboxRoot)
 			return nil
 		}
 		if err := dockerRun("stop", name); err != nil {

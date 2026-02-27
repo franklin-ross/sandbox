@@ -19,15 +19,16 @@ var shellCmd = &cobra.Command{
 }
 
 func runShell(wsPath string) error {
-	name, err := ensureRunning(wsPath)
+	sandboxRoot, workDir := resolveWorkspace(wsPath)
+	name, err := ensureRunning(sandboxRoot)
 	if err != nil {
 		return err
 	}
-	cfg, err := loadConfig(wsPath)
+	cfg, err := loadConfig(sandboxRoot)
 	if err != nil {
 		return err
 	}
-	return dockerExec(name, wsPath, cfg, "/bin/zsh")
+	return dockerExec(name, workDir, cfg, "/bin/zsh")
 }
 
 func init() {

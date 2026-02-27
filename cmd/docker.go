@@ -301,3 +301,42 @@ func resolvePath(p string) string {
 	}
 	return abs
 }
+
+// findSandboxRoot walks up from startPath looking for a directory containing
+// .sandbox/. The user-level ~/.sandbox/ is excluded since it holds global
+// config, not a workspace sandbox.
+func findSandboxRoot(startPath string) string {
+	home, _ := os.UserHomeDir()
+	dir := startPath
+	for {
+		candidate := filepath.Join(dir, ".sandbox")
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			if home == "" || dir != home {
+				return dir
+			}
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
+}
+
+// resolveWorkspace determines the sandbox root and working directory for a
+// command. It walks up from path looking for a parent with .sandbox/. When
+// --here is set the given path is used directly.
+// Returns (sandboxRoot, workDir).
+func resolveWorkspace(path string) (string, string) {
+	if flagHere {
+		return path, path
+	}
+	root := findSandboxRoot(path)
+	if root == "" {
+		return path, path
+	}
+	if root != path {
+		fmt.Printf("Using parent sandbox at %s\n", root)
+	}
+	return root, path
+}

@@ -115,6 +115,144 @@ func TestContainerNameWithSpaces(t *testing.T) {
 	// NOTE: Docker rejects container names with spaces at runtime.
 }
 
+func TestFindSandboxRoot(t *testing.T) {
+	t.Run("found in current dir", func(t *testing.T) {
+		dir := t.TempDir()
+		os.MkdirAll(filepath.Join(dir, ".sandbox"), 0755)
+
+		got := findSandboxRoot(dir)
+		if got != dir {
+			t.Errorf("findSandboxRoot(%q) = %q, want %q", dir, got, dir)
+		}
+	})
+
+	t.Run("found in parent", func(t *testing.T) {
+		parent := t.TempDir()
+		os.MkdirAll(filepath.Join(parent, ".sandbox"), 0755)
+		child := filepath.Join(parent, "worktree", "feature-x")
+		os.MkdirAll(child, 0755)
+
+		got := findSandboxRoot(child)
+		if got != parent {
+			t.Errorf("findSandboxRoot(%q) = %q, want %q", child, got, parent)
+		}
+	})
+
+	t.Run("found in grandparent", func(t *testing.T) {
+		gp := t.TempDir()
+		os.MkdirAll(filepath.Join(gp, ".sandbox"), 0755)
+		child := filepath.Join(gp, "a", "b", "c")
+		os.MkdirAll(child, 0755)
+
+		got := findSandboxRoot(child)
+		if got != gp {
+			t.Errorf("findSandboxRoot(%q) = %q, want %q", child, got, gp)
+		}
+	})
+
+	t.Run("closest parent wins", func(t *testing.T) {
+		gp := t.TempDir()
+		os.MkdirAll(filepath.Join(gp, ".sandbox"), 0755)
+		parent := filepath.Join(gp, "sub")
+		os.MkdirAll(filepath.Join(parent, ".sandbox"), 0755)
+		child := filepath.Join(parent, "deep")
+		os.MkdirAll(child, 0755)
+
+		got := findSandboxRoot(child)
+		if got != parent {
+			t.Errorf("findSandboxRoot(%q) = %q, want %q (closest parent)", child, got, parent)
+		}
+	})
+
+	t.Run("skips home directory", func(t *testing.T) {
+		tmpHome := t.TempDir()
+		t.Setenv("HOME", tmpHome)
+		os.MkdirAll(filepath.Join(tmpHome, ".sandbox"), 0755)
+
+		// Child under home with no .sandbox/ of its own
+		child := filepath.Join(tmpHome, "projects", "foo")
+		os.MkdirAll(child, 0755)
+
+		got := findSandboxRoot(child)
+		if got != "" {
+			t.Errorf("findSandboxRoot should skip ~/.sandbox, got %q", got)
+		}
+	})
+
+	t.Run("none found", func(t *testing.T) {
+		dir := t.TempDir()
+		child := filepath.Join(dir, "a", "b")
+		os.MkdirAll(child, 0755)
+
+		got := findSandboxRoot(child)
+		if got != "" {
+			t.Errorf("findSandboxRoot(%q) = %q, want empty", child, got)
+		}
+	})
+}
+
+func TestResolveWorkspace(t *testing.T) {
+	t.Run("no parent sandbox", func(t *testing.T) {
+		dir := t.TempDir()
+		child := filepath.Join(dir, "project")
+		os.MkdirAll(child, 0755)
+
+		root, workDir := resolveWorkspace(child)
+		if root != child {
+			t.Errorf("sandboxRoot = %q, want %q", root, child)
+		}
+		if workDir != child {
+			t.Errorf("workDir = %q, want %q", workDir, child)
+		}
+	})
+
+	t.Run("parent sandbox found", func(t *testing.T) {
+		parent := t.TempDir()
+		os.MkdirAll(filepath.Join(parent, ".sandbox"), 0755)
+		child := filepath.Join(parent, "worktree", "feature")
+		os.MkdirAll(child, 0755)
+
+		root, workDir := resolveWorkspace(child)
+		if root != parent {
+			t.Errorf("sandboxRoot = %q, want %q", root, parent)
+		}
+		if workDir != child {
+			t.Errorf("workDir = %q, want %q", workDir, child)
+		}
+	})
+
+	t.Run("same dir has sandbox", func(t *testing.T) {
+		dir := t.TempDir()
+		os.MkdirAll(filepath.Join(dir, ".sandbox"), 0755)
+
+		root, workDir := resolveWorkspace(dir)
+		if root != dir {
+			t.Errorf("sandboxRoot = %q, want %q", root, dir)
+		}
+		if workDir != dir {
+			t.Errorf("workDir = %q, want %q", workDir, dir)
+		}
+	})
+
+	t.Run("here flag skips search", func(t *testing.T) {
+		parent := t.TempDir()
+		os.MkdirAll(filepath.Join(parent, ".sandbox"), 0755)
+		child := filepath.Join(parent, "sub")
+		os.MkdirAll(child, 0755)
+
+		flagHere = true
+		defer func() { flagHere = false }()
+
+		root, workDir := resolveWorkspace(child)
+		if root != child {
+			t.Errorf("with --here: sandboxRoot = %q, want %q", root, child)
+		}
+		if workDir != child {
+			t.Errorf("with --here: workDir = %q, want %q", workDir, child)
+		}
+	})
+}
+
 func TestBuildImageWritesFiles(t *testing.T) {
 	// Verify embedded files are non-empty (they're baked in at compile time)
 	if len(dockerfile) == 0 {

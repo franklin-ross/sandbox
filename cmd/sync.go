@@ -31,12 +31,13 @@ var syncCmd = &cobra.Command{
 			wsPath = args[0]
 		}
 		wsPath = resolvePath(wsPath)
+		sandboxRoot, _ := resolveWorkspace(wsPath)
 
-		name, err := ensureStarted(wsPath)
+		name, err := ensureStarted(sandboxRoot)
 		if err != nil {
 			return err
 		}
-		return syncContainer(name, wsPath, true)
+		return syncContainer(name, sandboxRoot, true)
 	},
 }
 
