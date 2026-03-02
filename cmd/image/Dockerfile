@@ -10,7 +10,7 @@ ENV LC_ALL=C.UTF-8
 # Base tools
 RUN apt-get update && apt-get install -y \
     zsh curl wget git sudo \
-    ripgrep jq fzf tmux less unzip \
+    ripgrep jq fzf tmux less unzip rsync \
     build-essential pkg-config libssl-dev \
     ca-certificates gnupg \
     iptables dnsutils iproute2 \
