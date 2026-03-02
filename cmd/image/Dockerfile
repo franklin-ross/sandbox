@@ -9,7 +9,7 @@ ENV LC_ALL=C.UTF-8
 
 # Base tools
 RUN apt-get update && apt-get install -y \
-    zsh curl wget git sudo \
+    zsh curl wget git \
     ripgrep jq fzf tmux less unzip rsync \
     build-essential pkg-config libssl-dev \
     ca-certificates gnupg \
@@ -26,6 +26,10 @@ ENV PATH="/usr/local/go/bin:${PATH}"
 # Task runner (https://taskfile.dev)
 RUN sh -c "$(curl -fsSL https://taskfile.dev/install.sh)" -- -d -b /usr/local/bin
 
+# Firewall script — requires root, run from the host via
+# "docker exec -u root" after the container starts.
+COPY --chmod=755 init-firewall.sh /opt/init-firewall.sh
+
 ENV CHROME_BIN=/usr/bin/chromium
 ENV CHROMIUM_BIN=/usr/bin/chromium
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
@@ -33,8 +37,7 @@ ENV PUPPETEER_SKIP_DOWNLOAD=true
 
 # Non-root user (UID matches host so bind-mounted files have correct ownership)
 ARG HOST_UID=1000
-RUN useradd -m -s /bin/zsh -u ${HOST_UID} agent \
-    && echo "agent ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers
+RUN useradd -m -s /bin/zsh -u ${HOST_UID} agent
 USER agent
 
 # Go workspace
@@ -65,14 +68,6 @@ RUN curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | b
     && ln -s "$NVM_DIR/versions/node/$(node -v)" "$NVM_DIR/current"
 ENV PATH="/home/agent/.nvm/current/bin:${PATH}"
 
-# Firewall + entrypoint
-USER root
-COPY init-firewall.sh /opt/init-firewall.sh
-COPY entrypoint.sh /opt/entrypoint.sh
-RUN chmod +x /opt/init-firewall.sh /opt/entrypoint.sh
-
-USER agent
 RUN mkdir -p /home/agent/.claude
 
-ENTRYPOINT ["/opt/entrypoint.sh"]
 CMD ["sleep", "infinity"]

@@ -261,9 +261,6 @@ func TestBuildImageWritesFiles(t *testing.T) {
 	if len(firewallScript) == 0 {
 		t.Error("embedded init-firewall.sh is empty")
 	}
-	if len(entrypointScript) == 0 {
-		t.Error("embedded entrypoint.sh is empty")
-	}
 }
 
 func TestNoDockerInDocker(t *testing.T) {

@@ -14,9 +14,6 @@ import (
 //go:embed image/init-firewall.sh
 var firewallScript []byte
 
-//go:embed image/entrypoint.sh
-var entrypointScript []byte
-
 // syncStatus prints a status line that overwrites itself.
 func syncStatus(msg string) {
 	fmt.Fprintf(os.Stderr, "\r\033[K  \033[2m%s\033[0m", msg)
@@ -78,15 +75,7 @@ func syncItems(container string, items []SyncItem) error {
 func buildSyncManifest(cfg *SandboxConfig) ([]SyncItem, error) {
 	var items []SyncItem
 
-	// 1. Embedded entrypoint
-	items = append(items, SyncItem{
-		Data:  entrypointScript,
-		Dest:  "/opt/entrypoint.sh",
-		Mode:  "0755",
-		Owner: "root:root",
-	})
-
-	// 2. Embedded firewall script
+	// 1. Embedded firewall script
 	items = append(items, SyncItem{
 		Data:  firewallScript,
 		Dest:  "/opt/init-firewall.sh",

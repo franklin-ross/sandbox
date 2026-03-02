@@ -18,6 +18,7 @@ RUN adduser -D -s /bin/sh agent \
     && mkdir -p /home/agent/.oh-my-zsh/custom/themes \
     && echo 'ZSH_THEME="robbyrussell"' > /home/agent/.zshrc \
     && chown -R agent:agent /home/agent
+RUN printf '#!/bin/sh\nexit 0\n' > /opt/init-firewall.sh && chmod +x /opt/init-firewall.sh
 CMD ["sleep", "infinity"]
 `
 
@@ -70,14 +71,11 @@ func overrideEmbeddedFiles(t *testing.T) {
 	t.Helper()
 	origDockerfile := dockerfile
 	origFirewall := firewallScript
-	origEntrypoint := entrypointScript
 	dockerfile = []byte(testDockerfile)
 	firewallScript = []byte("#!/bin/sh\n")
-	entrypointScript = []byte("#!/bin/sh\nexec \"$@\"\n")
 	t.Cleanup(func() {
 		dockerfile = origDockerfile
 		firewallScript = origFirewall
-		entrypointScript = origEntrypoint
 	})
 }
 

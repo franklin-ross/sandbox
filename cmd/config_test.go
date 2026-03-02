@@ -632,24 +632,18 @@ func TestBuildSyncManifest(t *testing.T) {
 		}
 
 		// Firewall rules are synced separately (in parallel with DNS),
-		// so the manifest only has: entrypoint, firewall script, env.
-		if len(items) < 3 {
-			t.Fatalf("expected at least 3 items, got %d", len(items))
+		// so the manifest only has: firewall script, env.
+		if len(items) < 2 {
+			t.Fatalf("expected at least 2 items, got %d", len(items))
 		}
-		if items[0].Dest != "/opt/entrypoint.sh" {
-			t.Errorf("item 0 dest = %q, want /opt/entrypoint.sh", items[0].Dest)
+		if items[0].Dest != "/opt/init-firewall.sh" {
+			t.Errorf("item 0 dest = %q, want /opt/init-firewall.sh", items[0].Dest)
 		}
-		if items[0].Owner != "root:root" {
-			t.Errorf("item 0 owner = %q, want root:root", items[0].Owner)
+		if items[1].Dest != "/home/agent/.sandbox-env" {
+			t.Errorf("item 1 dest = %q, want /home/agent/.sandbox-env", items[1].Dest)
 		}
-		if items[1].Dest != "/opt/init-firewall.sh" {
-			t.Errorf("item 1 dest = %q, want /opt/init-firewall.sh", items[1].Dest)
-		}
-		if items[2].Dest != "/home/agent/.sandbox-env" {
-			t.Errorf("item 2 dest = %q, want /home/agent/.sandbox-env", items[2].Dest)
-		}
-		if items[2].Owner != "agent:agent" {
-			t.Errorf("item 2 owner = %q, want agent:agent", items[2].Owner)
+		if items[1].Owner != "agent:agent" {
+			t.Errorf("item 1 owner = %q, want agent:agent", items[1].Owner)
 		}
 	})
 

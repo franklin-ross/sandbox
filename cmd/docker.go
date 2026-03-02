@@ -56,6 +56,7 @@ func EnsureStarted(wsPath string) (string, error) {
 		"--label", LabelSel,
 		"--label", LabelWs+"="+wsPath,
 		"--cap-add", "NET_ADMIN",
+		"--security-opt", "no-new-privileges",
 		"-v", wsPath+":"+wsPath,
 		"-w", wsPath,
 		imageName)
@@ -63,6 +64,12 @@ func EnsureStarted(wsPath string) (string, error) {
 	err := cmd.Run()
 	if err != nil {
 		return "", fmt.Errorf("start container: %w", err)
+	}
+
+	// Initialise the firewall as root. The container defaults to the
+	// unprivileged "agent" user, so we exec as root explicitly.
+	if err := exec.Command("docker", "exec", "-u", "root", name, "/opt/init-firewall.sh").Run(); err != nil {
+		return "", fmt.Errorf("init firewall: %w", err)
 	}
 
 	return name, nil
@@ -86,7 +93,6 @@ func ImageHash() string {
 	h := sha256.New()
 	h.Write(dockerfile)
 	h.Write(firewallScript)
-	h.Write(entrypointScript)
 	h.Write([]byte(fmt.Sprintf("uid=%d", os.Getuid())))
 	return hex.EncodeToString(h.Sum(nil))[:16]
 }
@@ -120,10 +126,6 @@ func BuildImage(hash string) error {
 	if err := os.WriteFile(filepath.Join(dir, "init-firewall.sh"), firewallScript, 0755); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(dir, "entrypoint.sh"), entrypointScript, 0755); err != nil {
-		return err
-	}
-
 	cmd := exec.Command("docker", "build",
 		"--progress=plain",
 		"--build-arg", fmt.Sprintf("HOST_UID=%d", os.Getuid()),

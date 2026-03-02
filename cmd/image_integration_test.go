@@ -40,6 +40,7 @@ func startIntegrationContainer(t *testing.T) string {
 	out, err := exec.Command("docker", "run", "-d",
 		"--name", name,
 		"--cap-add", "NET_ADMIN",
+		"--security-opt", "no-new-privileges",
 		integrationImage).CombinedOutput()
 	if err != nil {
 		t.Fatalf("docker run: %v\n%s", err, out)
@@ -135,7 +136,4 @@ func TestImageIntegration(t *testing.T) {
 		execInContainer(t, ctr, "test", "-x", "/opt/init-firewall.sh")
 	})
 
-	t.Run("entrypoint script", func(t *testing.T) {
-		execInContainer(t, ctr, "test", "-x", "/opt/entrypoint.sh")
-	})
 }
