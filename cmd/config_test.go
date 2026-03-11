@@ -755,4 +755,277 @@ func TestBuildSyncManifest(t *testing.T) {
 			t.Errorf("default owner = %q, want agent:agent", syncItem.Owner)
 		}
 	})
+
+	t.Run("hostcmd script included when host_commands configured", func(t *testing.T) {
+		t.Setenv("HOME", "/nonexistent-test-home")
+		t.Setenv("ZSH_THEME", "")
+
+		cfg := &SandboxConfig{
+			HostCommands: []HostCommand{
+				{Name: "deploy", Cmd: "./deploy.sh"},
+			},
+		}
+		items, err := buildSyncManifest(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var found bool
+		for _, item := range items {
+			if item.Dest == "/usr/local/bin/hostcmd" {
+				found = true
+				if item.Mode != "0755" {
+					t.Errorf("hostcmd mode = %q, want 0755", item.Mode)
+				}
+				if item.Owner != "root:root" {
+					t.Errorf("hostcmd owner = %q, want root:root", item.Owner)
+				}
+			}
+		}
+		if !found {
+			t.Error("hostcmd script not in sync manifest")
+		}
+	})
+
+	t.Run("hostcmd script omitted when no host_commands", func(t *testing.T) {
+		t.Setenv("HOME", "/nonexistent-test-home")
+		t.Setenv("ZSH_THEME", "")
+
+		cfg := &SandboxConfig{}
+		items, err := buildSyncManifest(cfg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, item := range items {
+			if item.Dest == "/usr/local/bin/hostcmd" {
+				t.Error("hostcmd script should not be in manifest when no host_commands")
+			}
+		}
+	})
+}
+
+func TestHostCommandParsing(t *testing.T) {
+	t.Run("full command", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "config.yaml")
+		os.WriteFile(path, []byte(`host_commands:
+  - name: deploy
+    cmd: ./deploy.sh
+  - name: restart-db
+    cmd: systemctl restart postgres
+`), 0644)
+
+		cfg, err := parseConfigFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(cfg.HostCommands) != 2 {
+			t.Fatalf("host_commands len = %d, want 2", len(cfg.HostCommands))
+		}
+		if cfg.HostCommands[0].Name != "deploy" {
+			t.Errorf("name = %q, want %q", cfg.HostCommands[0].Name, "deploy")
+		}
+		if cfg.HostCommands[0].Cmd != "./deploy.sh" {
+			t.Errorf("cmd = %q, want %q", cfg.HostCommands[0].Cmd, "./deploy.sh")
+		}
+	})
+
+	t.Run("empty name rejected", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "config.yaml")
+		os.WriteFile(path, []byte(`host_commands:
+  - name: ""
+    cmd: echo hi
+  - name: valid
+    cmd: echo ok
+`), 0644)
+
+		cfg, err := parseConfigFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(cfg.HostCommands) != 1 {
+			t.Fatalf("host_commands len = %d, want 1", len(cfg.HostCommands))
+		}
+		if cfg.HostCommands[0].Name != "valid" {
+			t.Errorf("name = %q, want %q", cfg.HostCommands[0].Name, "valid")
+		}
+	})
+
+	t.Run("empty cmd rejected", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "config.yaml")
+		os.WriteFile(path, []byte(`host_commands:
+  - name: bad
+    cmd: ""
+  - name: good
+    cmd: echo ok
+`), 0644)
+
+		cfg, err := parseConfigFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(cfg.HostCommands) != 1 {
+			t.Fatalf("host_commands len = %d, want 1", len(cfg.HostCommands))
+		}
+		if cfg.HostCommands[0].Name != "good" {
+			t.Errorf("name = %q, want %q", cfg.HostCommands[0].Name, "good")
+		}
+	})
+
+	t.Run("duplicate name rejected", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "config.yaml")
+		os.WriteFile(path, []byte(`host_commands:
+  - name: deploy
+    cmd: echo first
+  - name: deploy
+    cmd: echo second
+`), 0644)
+
+		cfg, err := parseConfigFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(cfg.HostCommands) != 1 {
+			t.Fatalf("host_commands len = %d, want 1 (duplicate should be filtered)", len(cfg.HostCommands))
+		}
+		if cfg.HostCommands[0].Cmd != "echo first" {
+			t.Errorf("cmd = %q, want first occurrence", cfg.HostCommands[0].Cmd)
+		}
+	})
+}
+
+func TestMergeHostCommands(t *testing.T) {
+	t.Run("override by name", func(t *testing.T) {
+		base := &SandboxConfig{
+			HostCommands: []HostCommand{
+				{Name: "deploy", Cmd: "echo base"},
+				{Name: "test", Cmd: "echo test"},
+			},
+		}
+		override := &SandboxConfig{
+			HostCommands: []HostCommand{
+				{Name: "deploy", Cmd: "echo override"},
+			},
+		}
+		merged := mergeConfig(base, override)
+		if len(merged.HostCommands) != 2 {
+			t.Fatalf("host_commands len = %d, want 2", len(merged.HostCommands))
+		}
+		for _, hc := range merged.HostCommands {
+			if hc.Name == "deploy" && hc.Cmd != "echo override" {
+				t.Errorf("deploy cmd = %q, want %q", hc.Cmd, "echo override")
+			}
+		}
+	})
+
+	t.Run("preserves order", func(t *testing.T) {
+		base := &SandboxConfig{
+			HostCommands: []HostCommand{
+				{Name: "a", Cmd: "echo a"},
+				{Name: "b", Cmd: "echo b"},
+			},
+		}
+		override := &SandboxConfig{
+			HostCommands: []HostCommand{
+				{Name: "c", Cmd: "echo c"},
+			},
+		}
+		merged := mergeConfig(base, override)
+		if len(merged.HostCommands) != 3 {
+			t.Fatalf("host_commands len = %d, want 3", len(merged.HostCommands))
+		}
+		if merged.HostCommands[0].Name != "a" {
+			t.Errorf("host_commands[0] = %q, want a", merged.HostCommands[0].Name)
+		}
+		if merged.HostCommands[2].Name != "c" {
+			t.Errorf("host_commands[2] = %q, want c", merged.HostCommands[2].Name)
+		}
+	})
+
+	t.Run("empty base", func(t *testing.T) {
+		base := &SandboxConfig{}
+		override := &SandboxConfig{
+			HostCommands: []HostCommand{
+				{Name: "deploy", Cmd: "echo deploy"},
+			},
+		}
+		merged := mergeConfig(base, override)
+		if len(merged.HostCommands) != 1 {
+			t.Fatalf("host_commands len = %d, want 1", len(merged.HostCommands))
+		}
+	})
+
+	t.Run("empty override", func(t *testing.T) {
+		base := &SandboxConfig{
+			HostCommands: []HostCommand{
+				{Name: "deploy", Cmd: "echo deploy"},
+			},
+		}
+		override := &SandboxConfig{}
+		merged := mergeConfig(base, override)
+		if len(merged.HostCommands) != 1 {
+			t.Fatalf("host_commands len = %d, want 1", len(merged.HostCommands))
+		}
+	})
+}
+
+func TestHostcmdPortParsing(t *testing.T) {
+	t.Run("custom port", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "config.yaml")
+		os.WriteFile(path, []byte(`hostcmd_port: 12345
+`), 0644)
+
+		cfg, err := parseConfigFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cfg.HostcmdPort != 12345 {
+			t.Errorf("hostcmd_port = %d, want 12345", cfg.HostcmdPort)
+		}
+		if cfg.EffectiveHostcmdPort() != 12345 {
+			t.Errorf("EffectiveHostcmdPort() = %d, want 12345", cfg.EffectiveHostcmdPort())
+		}
+	})
+
+	t.Run("default port", func(t *testing.T) {
+		cfg := &SandboxConfig{}
+		if cfg.EffectiveHostcmdPort() != DefaultHostcmdPort {
+			t.Errorf("default port = %d, want %d", cfg.EffectiveHostcmdPort(), DefaultHostcmdPort)
+		}
+	})
+}
+
+func TestMergeHostcmdPort(t *testing.T) {
+	t.Run("workspace overrides global", func(t *testing.T) {
+		base := &SandboxConfig{HostcmdPort: 9000}
+		override := &SandboxConfig{HostcmdPort: 9001}
+		merged := mergeConfig(base, override)
+		if merged.HostcmdPort != 9001 {
+			t.Errorf("port = %d, want 9001", merged.HostcmdPort)
+		}
+	})
+
+	t.Run("global preserved when workspace unset", func(t *testing.T) {
+		base := &SandboxConfig{HostcmdPort: 9000}
+		override := &SandboxConfig{}
+		merged := mergeConfig(base, override)
+		if merged.HostcmdPort != 9000 {
+			t.Errorf("port = %d, want 9000", merged.HostcmdPort)
+		}
+	})
+
+	t.Run("both unset", func(t *testing.T) {
+		base := &SandboxConfig{}
+		override := &SandboxConfig{}
+		merged := mergeConfig(base, override)
+		if merged.HostcmdPort != 0 {
+			t.Errorf("port = %d, want 0 (unset)", merged.HostcmdPort)
+		}
+		if merged.EffectiveHostcmdPort() != DefaultHostcmdPort {
+			t.Errorf("effective port = %d, want %d", merged.EffectiveHostcmdPort(), DefaultHostcmdPort)
+		}
+	})
 }

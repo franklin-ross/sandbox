@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"fmt"
 	"strings"
 
 	cmd "github.com/franklin-ross/sandbox/cmd"
@@ -37,9 +38,28 @@ Examples:
 		if err != nil {
 			return err
 		}
+
+		var extraEnv map[string]string
+		if len(cfg.HostCommands) > 0 {
+			port := cfg.EffectiveHostcmdPort()
+			if err := cmd.EnsureHostcmdDaemon(port); err != nil {
+				return fmt.Errorf("hostcmd daemon: %w", err)
+			}
+			sessionID := cmd.GenerateSessionID()
+			if err := cmd.RegisterHostcmdSession(port, sessionID, cfg.HostCommands, sandboxRoot); err != nil {
+				return fmt.Errorf("register hostcmd session: %w", err)
+			}
+			defer cmd.UnregisterHostcmdSession(port, sessionID)
+
+			extraEnv = map[string]string{
+				"SANDBOX_SESSION":      sessionID,
+				"SANDBOX_HOSTCMD_PORT": fmt.Sprintf("%d", port),
+			}
+		}
+
 		execArgs := []string{"claude", "--dangerously-skip-permissions"}
 		execArgs = append(execArgs, claudeArgs...)
-		return cmd.DockerExec(name, workDir, cfg, execArgs...)
+		return cmd.DockerExec(name, workDir, cfg, extraEnv, execArgs...)
 	},
 }
 

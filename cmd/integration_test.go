@@ -1,11 +1,15 @@
 package cmd
 
 import (
+	"context"
+	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 const testImageName = "sandbox-test"
@@ -13,7 +17,7 @@ const testImageName = "sandbox-test"
 // Minimal test image that mirrors the sandbox structure (agent user, .zshrc)
 // so syncContainer exercises the real code paths.
 const testDockerfile = `FROM alpine:latest
-RUN apk add --no-cache bash
+RUN apk add --no-cache bash nodejs
 RUN adduser -D -s /bin/sh agent \
     && mkdir -p /home/agent/.oh-my-zsh/custom/themes \
     && echo 'ZSH_THEME="robbyrussell"' > /home/agent/.zshrc \
@@ -398,5 +402,153 @@ func TestContainerLabels(t *testing.T) {
 	}
 	if got := strings.TrimSpace(string(out)); got != wsPath {
 		t.Errorf("workspace label = %q, want %q", got, wsPath)
+	}
+}
+
+// startHostcmdContainer creates a container, starts a hostcmd daemon on the
+// host, registers a session, and syncs the hostcmd client script into the
+// container. Returns the container name, session ID, and daemon port.
+func startHostcmdContainer(t *testing.T, commands []HostCommand) (container, sessionID string, port int) {
+	t.Helper()
+
+	wsPath := t.TempDir()
+	name := ContainerName(wsPath) + "-hc"
+	removeContainer(t, name)
+
+	// Start daemon as a goroutine (EnsureHostcmdDaemon forks a subprocess
+	// which doesn't work from test binaries).
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("find free port: %v", err)
+	}
+	port = l.Addr().(*net.TCPAddr).Port
+	l.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go RunHostcmdDaemon(ctx, port)
+	t.Cleanup(cancel)
+
+	// Wait for daemon to be ready.
+	for i := 0; i < 40; i++ {
+		conn, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", port), 100*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			break
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+
+	sessionID = GenerateSessionID()
+	if err := RegisterHostcmdSession(port, sessionID, commands, wsPath); err != nil {
+		t.Fatalf("register session: %v", err)
+	}
+	t.Cleanup(func() { UnregisterHostcmdSession(port, sessionID) })
+
+	err = DockerRun("run", "-d",
+		"--name", name,
+		"--label", LabelSel,
+		"-v", wsPath+":"+wsPath,
+		testImageName)
+	if err != nil {
+		t.Fatalf("docker run: %v", err)
+	}
+
+	// Sync the hostcmd script into the container.
+	scriptItem := SyncItem{
+		Data:  hostcmdScript,
+		Dest:  "/usr/local/bin/hostcmd",
+		Mode:  "0755",
+		Owner: "root:root",
+	}
+	if err := syncItems(name, []SyncItem{scriptItem}); err != nil {
+		t.Fatalf("sync hostcmd script: %v", err)
+	}
+
+	return name, sessionID, port
+}
+
+func TestHostcmdEndToEnd(t *testing.T) {
+	requireDocker(t)
+	useTestImage(t)
+	buildTestImage(t)
+
+	commands := []HostCommand{
+		{Name: "greet", Cmd: "echo hello-from-host"},
+	}
+	name, sessionID, port := startHostcmdContainer(t, commands)
+
+	out, err := exec.Command("docker", "exec",
+		"-e", "SANDBOX_SESSION="+sessionID,
+		"-e", fmt.Sprintf("SANDBOX_HOSTCMD_PORT=%d", port),
+		name, "hostcmd", "greet").CombinedOutput()
+	if err != nil {
+		t.Fatalf("hostcmd greet: %v\n%s", err, out)
+	}
+	if got := strings.TrimSpace(string(out)); got != "hello-from-host" {
+		t.Errorf("output = %q, want %q", got, "hello-from-host")
+	}
+}
+
+func TestHostcmdUnknownCommand(t *testing.T) {
+	requireDocker(t)
+	useTestImage(t)
+	buildTestImage(t)
+
+	commands := []HostCommand{
+		{Name: "deploy", Cmd: "echo deploy"},
+	}
+	name, sessionID, port := startHostcmdContainer(t, commands)
+
+	out, err := exec.Command("docker", "exec",
+		"-e", "SANDBOX_SESSION="+sessionID,
+		"-e", fmt.Sprintf("SANDBOX_HOSTCMD_PORT=%d", port),
+		name, "hostcmd", "bogus").CombinedOutput()
+	if err == nil {
+		t.Fatal("expected nonzero exit for unknown command")
+	}
+	if !strings.Contains(string(out), "unknown command") {
+		t.Errorf("output = %q, want to contain 'unknown command'", string(out))
+	}
+}
+
+func TestHostcmdConcurrent(t *testing.T) {
+	requireDocker(t)
+	useTestImage(t)
+	buildTestImage(t)
+
+	commands := []HostCommand{
+		{Name: "echo-a", Cmd: "echo aaa"},
+		{Name: "echo-b", Cmd: "echo bbb"},
+		{Name: "echo-c", Cmd: "echo ccc"},
+	}
+	name, sessionID, port := startHostcmdContainer(t, commands)
+
+	type result struct {
+		name   string
+		output string
+		err    error
+	}
+
+	ch := make(chan result, 3)
+	for _, cmdName := range []string{"echo-a", "echo-b", "echo-c"} {
+		go func(n string) {
+			out, err := exec.Command("docker", "exec",
+				"-e", "SANDBOX_SESSION="+sessionID,
+				"-e", fmt.Sprintf("SANDBOX_HOSTCMD_PORT=%d", port),
+				name, "hostcmd", n).CombinedOutput()
+			ch <- result{name: n, output: strings.TrimSpace(string(out)), err: err}
+		}(cmdName)
+	}
+
+	expected := map[string]string{"echo-a": "aaa", "echo-b": "bbb", "echo-c": "ccc"}
+	for i := 0; i < 3; i++ {
+		r := <-ch
+		if r.err != nil {
+			t.Errorf("hostcmd %s failed: %v (%s)", r.name, r.err, r.output)
+			continue
+		}
+		if want := expected[r.name]; r.output != want {
+			t.Errorf("hostcmd %s output = %q, want %q", r.name, r.output, want)
+		}
 	}
 }

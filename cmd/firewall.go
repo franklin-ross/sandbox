@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"strings"
 )
 
@@ -22,7 +23,8 @@ type resolveResult struct {
 }
 
 // resolveFirewallEntries resolves all domain entries and returns per-entry IP
-// lists. CIDR entries are returned as-is.
+// lists. CIDR entries are returned as-is. Note: host.docker.internal (for
+// hostcmd) is resolved separately inside the container via resolveHostGateway.
 func resolveFirewallEntries(cfg *SandboxConfig) (domains []resolvedEntry, cidrs []FirewallEntry) {
 	for _, e := range cfg.Firewall.Allow {
 		if e.Domain != "" {
@@ -110,6 +112,34 @@ func resolveFirewallEntriesAsync(cfg *SandboxConfig) (result <-chan resolveResul
 	return resultCh, progressCh
 }
 
+// resolveHostGateway resolves host.docker.internal from inside the running
+// container and returns a resolvedEntry for the given port. This hostname only
+// resolves inside Docker containers (not on the host), so we use docker exec.
+// Works with Docker Desktop, OrbStack, Colima, and other Docker runtimes.
+// Returns nil if resolution fails.
+func resolveHostGateway(container string, port int) *resolvedEntry {
+	out, err := exec.Command("docker", "exec", container, "getent", "hosts", "host.docker.internal").Output()
+	if err != nil {
+		return nil
+	}
+	// getent output: "192.168.65.254  host.docker.internal"
+	fields := strings.Fields(strings.TrimSpace(string(out)))
+	if len(fields) == 0 {
+		return nil
+	}
+	parsed := net.ParseIP(fields[0])
+	if parsed == nil {
+		return nil
+	}
+	re := &resolvedEntry{ports: []int{port}}
+	if parsed.To4() != nil {
+		re.v4 = []string{fields[0]}
+	} else {
+		re.v6 = []string{fields[0]}
+	}
+	return re
+}
+
 // writeRestoreRules writes an iptables-restore format ruleset for one address
 // family. isV6 controls the REJECT target (icmp vs icmp6).
 func writeRestoreRules(b *strings.Builder, domains []resolvedEntry, cidrs []FirewallEntry, isV6 bool) {
@@ -189,6 +219,10 @@ func firewallConfigHash(cfg *SandboxConfig) []byte {
 		for _, p := range e.Ports {
 			fmt.Fprintf(h, "%d", p)
 		}
+	}
+	// Include hostcmd port so changes trigger firewall re-sync.
+	if len(cfg.HostCommands) > 0 {
+		fmt.Fprintf(h, "hostcmd:%d", cfg.EffectiveHostcmdPort())
 	}
 	return h.Sum(nil)
 }

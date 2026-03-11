@@ -110,8 +110,8 @@ firewall:
 
 # Run shell commands whenever the config or any sync'd files change
 on_sync:
-    - cmd: npm install -g my-tool
-      name: install deps
+    - name: install deps
+      cmd: npm install -g my-tool
     - cmd: chmod 600 ~/.ssh/*
       root: true
 ```
@@ -119,6 +119,33 @@ on_sync:
 Whenever this config or any of the synced files change, the next command resynchronises it into the sandbox.
 
 See [specs/sandbox-config.spec.md](specs/sandbox-config.spec.md) for full details.
+
+### Host commands
+
+Host commands let the agent inside the sandbox trigger a limited set of pre-configured commands on the host machine. The agent can only send a command name — no arguments — so there's no risk of shell injection.
+
+```yaml
+host_commands:
+    - name: deploy
+      cmd: ./deploy.sh
+    - name: restart-db
+      cmd: systemctl restart postgres
+
+# Optional: override the default daemon port (9847)
+# hostcmd_port: 9848
+```
+
+Inside the sandbox, the agent runs `hostcmd <name>`:
+
+```bash
+$ hostcmd deploy
+Deploying to staging...
+Done.
+```
+
+A background daemon on the host manages command execution. It starts automatically on the first `sandbox shell` or `sandbox claude` session and shuts down when the last session ends. Each session registers its workspace's commands, so different workspaces can define different commands under the same name.
+
+The firewall is automatically configured to allow the container to reach the daemon.
 
 ## What's in the container
 

@@ -156,7 +156,7 @@ func BuildImage(hash string) error {
 	return nil
 }
 
-func DockerExec(container, workdir string, cfg *SandboxConfig, args ...string) error {
+func DockerExec(container, workdir string, cfg *SandboxConfig, extraEnv map[string]string, args ...string) error {
 	cmdArgs := []string{"exec", "-it", "-w", workdir}
 
 	// Pass through TERM so colors work in the container shell
@@ -181,6 +181,18 @@ func DockerExec(container, workdir string, cfg *SandboxConfig, args ...string) e
 				v = expanded
 			}
 			cmdArgs = append(cmdArgs, "-e", k+"="+v)
+		}
+	}
+
+	// Extra env vars (e.g. session-specific hostcmd vars)
+	if len(extraEnv) > 0 {
+		keys := make([]string, 0, len(extraEnv))
+		for k := range extraEnv {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			cmdArgs = append(cmdArgs, "-e", k+"="+extraEnv[k])
 		}
 	}
 

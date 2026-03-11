@@ -14,6 +14,9 @@ import (
 //go:embed image/init-firewall.sh
 var firewallScript []byte
 
+//go:embed image/hostcmd
+var hostcmdScript []byte
+
 // syncStatus prints a status line that overwrites itself.
 func syncStatus(msg string) {
 	fmt.Fprintf(os.Stderr, "\r\033[K  \033[2m%s\033[0m", msg)
@@ -131,7 +134,17 @@ func buildSyncManifest(cfg *SandboxConfig) ([]SyncItem, error) {
 		}
 	}
 
-	// 5. Explicit sync rules from config
+	// 5. Hostcmd helper script (only when host_commands are configured)
+	if len(cfg.HostCommands) > 0 {
+		items = append(items, SyncItem{
+			Data:  hostcmdScript,
+			Dest:  "/usr/local/bin/hostcmd",
+			Mode:  "0755",
+			Owner: "root:root",
+		})
+	}
+
+	// 6. Explicit sync rules from config
 	for _, rule := range cfg.Sync {
 		mode := rule.Mode
 		if mode == "" {
@@ -238,6 +251,14 @@ func SyncContainer(name, wsPath string, force bool) error {
 		}
 		resolved = <-resultCh
 		syncStatusDone()
+	}
+
+	// Resolve host gateway from inside the container for hostcmd firewall rules.
+	// host.docker.internal only resolves inside containers, not on the host.
+	if len(cfg.HostCommands) > 0 {
+		if gw := resolveHostGateway(name, cfg.EffectiveHostcmdPort()); gw != nil {
+			resolved.domains = append(resolved.domains, *gw)
+		}
 	}
 
 	// Generate firewall rules from resolved entries

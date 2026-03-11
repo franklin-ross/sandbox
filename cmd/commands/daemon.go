@@ -1,0 +1,29 @@
+package commands
+
+import (
+	"context"
+	"os"
+	"os/signal"
+	"syscall"
+
+	cmd "github.com/franklin-ross/sandbox/cmd"
+	"github.com/spf13/cobra"
+)
+
+var hostcmdDaemonPort int
+
+var hostcmdDaemonCmd = &cobra.Command{
+	Use:    "daemon",
+	Short:  "Run the host command daemon (internal)",
+	Hidden: true,
+	RunE: func(_ *cobra.Command, _ []string) error {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+		return cmd.RunHostcmdDaemon(ctx, hostcmdDaemonPort)
+	},
+}
+
+func init() {
+	hostcmdDaemonCmd.Flags().IntVar(&hostcmdDaemonPort, "port", cmd.DefaultHostcmdPort, "TCP port to listen on")
+	cmd.RootCmd.AddCommand(hostcmdDaemonCmd)
+}

@@ -10,12 +10,23 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// DefaultHostcmdPort is the default TCP port for the hostcmd daemon.
+const DefaultHostcmdPort = 9847
+
 // SandboxConfig holds the user-editable sandbox configuration.
 type SandboxConfig struct {
-	Sync     []SyncRule        `yaml:"sync"`
-	Env      map[string]string `yaml:"env"`
-	Firewall FirewallConfig    `yaml:"firewall"`
-	OnSync   []OnSyncHook      `yaml:"on_sync"`
+	Sync         []SyncRule        `yaml:"sync"`
+	Env          map[string]string `yaml:"env"`
+	Firewall     FirewallConfig    `yaml:"firewall"`
+	OnSync       []OnSyncHook      `yaml:"on_sync"`
+	HostCommands []HostCommand     `yaml:"host_commands"`
+	HostcmdPort  int               `yaml:"hostcmd_port"`
+}
+
+// HostCommand describes a command the agent can trigger on the host.
+type HostCommand struct {
+	Name string `yaml:"name"`
+	Cmd  string `yaml:"cmd"`
 }
 
 // OnSyncHook describes a command to run inside the container after sync.
@@ -126,6 +137,13 @@ firewall:
 #     name: install deps
 #   - cmd: chmod 600 ~/.ssh/*
 #     root: true
+
+# host_commands:
+#   - name: deploy
+#     cmd: ./deploy.sh
+#   - name: restart-db
+#     cmd: systemctl restart postgres
+# hostcmd_port: 9847
 `
 
 func parseConfigFile(path string) (*SandboxConfig, error) {
@@ -151,6 +169,27 @@ func parseConfigFile(path string) (*SandboxConfig, error) {
 		}
 	}
 	cfg.Firewall.Allow = valid
+
+	// Validate host_commands
+	seenCmds := make(map[string]bool)
+	var validCmds []HostCommand
+	for _, hc := range cfg.HostCommands {
+		if strings.TrimSpace(hc.Name) == "" {
+			fmt.Fprintf(os.Stderr, "warning: host_command with empty name, skipping\n")
+			continue
+		}
+		if strings.TrimSpace(hc.Cmd) == "" {
+			fmt.Fprintf(os.Stderr, "warning: host_command %q with empty cmd, skipping\n", hc.Name)
+			continue
+		}
+		if seenCmds[hc.Name] {
+			fmt.Fprintf(os.Stderr, "warning: duplicate host_command %q, skipping\n", hc.Name)
+			continue
+		}
+		seenCmds[hc.Name] = true
+		validCmds = append(validCmds, hc)
+	}
+	cfg.HostCommands = validCmds
 
 	// Validate on_sync hooks
 	var validHooks []OnSyncHook
@@ -250,7 +289,40 @@ func mergeConfig(base, override *SandboxConfig) *SandboxConfig {
 	result.OnSync = append(result.OnSync, base.OnSync...)
 	result.OnSync = append(result.OnSync, override.OnSync...)
 
+	// HostCommands: override replaces base by name (like sync by dest)
+	cmdMap := make(map[string]HostCommand)
+	var cmdOrder []string
+	for _, hc := range base.HostCommands {
+		if _, exists := cmdMap[hc.Name]; !exists {
+			cmdOrder = append(cmdOrder, hc.Name)
+		}
+		cmdMap[hc.Name] = hc
+	}
+	for _, hc := range override.HostCommands {
+		if _, exists := cmdMap[hc.Name]; !exists {
+			cmdOrder = append(cmdOrder, hc.Name)
+		}
+		cmdMap[hc.Name] = hc
+	}
+	for _, name := range cmdOrder {
+		result.HostCommands = append(result.HostCommands, cmdMap[name])
+	}
+
+	// HostcmdPort: workspace overrides global
+	result.HostcmdPort = base.HostcmdPort
+	if override.HostcmdPort != 0 {
+		result.HostcmdPort = override.HostcmdPort
+	}
+
 	return result
+}
+
+// EffectiveHostcmdPort returns the configured port or the default.
+func (c *SandboxConfig) EffectiveHostcmdPort() int {
+	if c.HostcmdPort != 0 {
+		return c.HostcmdPort
+	}
+	return DefaultHostcmdPort
 }
 
 func generateEnvFile(env map[string]string) []byte {
