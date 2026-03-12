@@ -1,4 +1,4 @@
-# sandbox
+# Sandbox
 
 A CLI tool for running Claude Code in sandboxed Docker containers with network firewalling and no permission prompts.
 
@@ -6,13 +6,13 @@ A CLI tool for running Claude Code in sandboxed Docker containers with network f
 
 The official Claude Code Docker sandbox has an opinionated auth flow that makes autonomous agent use painful. This tool gives you:
 
-- **Network firewalling** — outbound traffic restricted to Claude API, package registries (npm, Go, Rust, Ruby, PyPI), and GitHub
-- **No permission prompts** — `--dangerously-skip-permissions` by default, because the container IS the sandbox
-- **zsh shell at workspace root** — not dropped straight into Claude
+- **Network firewalling** — restricts outbound traffic to Claude API, package registries (npm, Go, Rust, Ruby, PyPI), and GitHub
+- **No permission prompts** — uses `--dangerously-skip-permissions` by default, because the container IS the sandbox
+- **zsh shell at workspace root** — drops you into zsh, not straight into Claude
 - **VSCode attachment** — `sandbox code .` opens VSCode remote into the container
-- **Auto-sync files** — files in `.sandbox/user/` automatically sync over to the container user directory, including binaries
+- **Auto-sync files** — automatically syncs files in `.sandbox/user/` to the container user directory, including binaries
 - **Configuration** — More/simpler configuration options
-- **Post-sync hooks** — run commands inside the container after every sync (e.g., `npm install -g some-tool`)
+- **Post-sync hooks** — runs commands inside the container after every sync (e.g., `npm install -g some-tool`)
 
 ## Install
 
@@ -29,9 +29,9 @@ Requires Docker to be running.
 
 ## Usage
 
-On first launch, the Docker image will build automatically which may take some time.
+On first launch, the tool builds the Docker image automatically, which may take some time.
 
-Claude credentials live inside the sandbox, so you'll need to log in once for each sandbox.
+Claude credentials live inside the sandbox, so you need to log in once for each sandbox.
 
 ```bash
 # Global initialisation (run once)
@@ -59,9 +59,9 @@ sandbox rm .
 sandbox sync project/
 ```
 
-## Parent sandbox discovery
+## Parent Sandbox Discovery
 
-When you run a command (e.g. `sandbox claude .`), the tool walks up the directory tree looking for a `.sandbox/` directory. If one is found in a parent, that parent is used as the sandbox root — the container is named after it, its config is loaded, and its directory is mounted. The command itself still runs at your current directory inside the container.
+When you run a command (e.g. `sandbox claude .`), the tool walks up the directory tree looking for a `.sandbox/` directory. If it finds one in a parent, it uses that parent as the sandbox root — names the container after it, loads its config, and mounts its directory. The command itself still runs at your current directory inside the container.
 
 This is useful for monorepos and git worktrees: put `.sandbox/` in the project root and run `sandbox claude` from any subdirectory or worktree without needing separate sandboxes.
 
@@ -72,7 +72,7 @@ sandbox claude .
 # → Uses sandbox from /home/user/myproject, runs claude in the worktree dir
 ```
 
-The user-level `~/.sandbox/` is never treated as a parent sandbox (it's global config only).
+The tool never treats the user-level `~/.sandbox/` as a parent sandbox (it holds global config only).
 
 Use `--here` to skip parent discovery and force a sandbox at the exact path:
 
@@ -84,12 +84,12 @@ Destructive commands (`stop`, `rm`) refuse to operate from a child directory to 
 
 ## Configuration
 
-Config lives in two places, merged at load time:
+Config lives in two places, which the tool merges at load time:
 
 - **Global**: `~/.sandbox/` — applies to all sandboxes
 - **Per-workspace**: `<workspace>/.sandbox/` — overrides/extends global
 
-By convention, `.sandbox/home/**/*` is sync'd into the sandbox. Any linux binaries in `.sandbox/home/bin/` will be executable by the agent user inside the sandbox.
+By convention, the tool syncs `.sandbox/home/**/*` into the sandbox. The agent user can execute any Linux binaries in `.sandbox/home/bin/` inside the sandbox.
 
 `.sandbox/config.yaml` provides fine-grained configuration for all containers, or for workspace specific containers.
 
@@ -116,38 +116,36 @@ on_sync:
       root: true
 ```
 
-Whenever this config or any of the synced files change, the next command resynchronises it into the sandbox.
+Whenever this config or any of the synced files change, the next command resynchronises everything into the sandbox.
 
 See [specs/sandbox-config.spec.md](specs/sandbox-config.spec.md) for full details.
 
-### Host commands
+### Host Tools
 
-Host commands let the agent inside the sandbox trigger a limited set of pre-configured commands on the host machine. The agent can only send a command name — no arguments — so there's no risk of shell injection.
+Host tools let the agent inside the sandbox trigger a limited set of pre-configured commands on the host machine. The agent can only send a tool name for now, no arguments to keep things simple.
+
+When you use `sandbox claude`, the tool automatically exposes host tools as MCP tools so Claude sees them as first-class tool calls.
 
 ```yaml
-host_commands:
+host_tools:
     - name: deploy
+      description: Deploy the app to staging
       cmd: ./deploy.sh
     - name: restart-db
+      description: Restart the PostgreSQL database
       cmd: systemctl restart postgres
 
 # Optional: override the default daemon port (9847)
-# hostcmd_port: 9848
+# host_tool_port: 9848
 ```
 
-Inside the sandbox, the agent runs `hostcmd <name>`:
+A background daemon on the host manages command execution. It starts automatically on the first `sandbox shell` or `sandbox claude` session and shuts down when the last session ends. Each session registers its workspace's tools, so different workspaces can define different tools under the same name.
 
-```bash
-$ hostcmd deploy
-Deploying to staging...
-Done.
-```
+The tool automatically configures the firewall to allow the container to reach the daemon.
 
-A background daemon on the host manages command execution. It starts automatically on the first `sandbox shell` or `sandbox claude` session and shuts down when the last session ends. Each session registers its workspace's commands, so different workspaces can define different commands under the same name.
+The daemon logs to `~/.sandbox/daemon/daemon.log` on the host.
 
-The firewall is automatically configured to allow the container to reach the daemon.
-
-## What's in the container
+## What's in the Container
 
 - Debian Bookworm
 - zsh + Oh My Zsh
@@ -160,7 +158,7 @@ The firewall is automatically configured to allow the container to reach the dae
 - Chromium (for Karma / Playwright / Cypress)
 - ripgrep, jq, fzf, tmux, git
 
-## Network allowlist
+## Network Allow List
 
 By default, the firewall allows outbound traffic to:
 
@@ -177,14 +175,14 @@ By default, the firewall allows outbound traffic to:
 | Cypress    | download.cypress.io, cdn.cypress.io                                                                       |
 | Playwright | cdn.playwright.dev, playwright.download.prss.microsoft.com                                                |
 
-Everything else is blocked. DNS is allowed so domains can be resolved at container start time.
+The firewall blocks everything else. It allows DNS so processes inside the container can still resolve hostnames.
 
-## How it works
+## How it Works
 
-The Docker image files are embedded in the `sandbox` binary via `go:embed`. When you run `sandbox start`, it:
+The `sandbox` binary embeds the Docker image files via `go:embed`. When you run `sandbox start`, it:
 
 1. Writes the embedded Dockerfile and scripts to a temp directory
 2. Builds the image (if not already built)
 3. Runs the container with `--cap-add=NET_ADMIN` (for iptables)
 4. Mounts your workspace into the container
-5. The entrypoint sets up iptables firewall rules, then sleeps
+5. Sets up iptables firewall rules via the entrypoint, then sleeps

@@ -756,37 +756,41 @@ func TestBuildSyncManifest(t *testing.T) {
 		}
 	})
 
-	t.Run("hostcmd script included when host_commands configured", func(t *testing.T) {
+	t.Run("host tool files included when host_tools configured", func(t *testing.T) {
 		t.Setenv("HOME", "/nonexistent-test-home")
 		t.Setenv("ZSH_THEME", "")
 
 		cfg := &SandboxConfig{
-			HostCommands: []HostCommand{
-				{Name: "deploy", Cmd: "./deploy.sh"},
+			HostTools: []HostTool{
+				{Name: "deploy", Description: "Deploy the app", Cmd: "./deploy.sh"},
 			},
 		}
 		items, err := buildSyncManifest(cfg)
 		if err != nil {
 			t.Fatal(err)
 		}
-		var found bool
+		expected := map[string]string{
+			"/opt/sandbox-host-tools.json":      "0644",
+			"/usr/local/bin/hosttool-mcp":       "0755",
+			"/home/agent/.claude/settings.json": "0644",
+		}
+		found := make(map[string]bool)
 		for _, item := range items {
-			if item.Dest == "/usr/local/bin/hostcmd" {
-				found = true
-				if item.Mode != "0755" {
-					t.Errorf("hostcmd mode = %q, want 0755", item.Mode)
-				}
-				if item.Owner != "root:root" {
-					t.Errorf("hostcmd owner = %q, want root:root", item.Owner)
+			if wantMode, ok := expected[item.Dest]; ok {
+				found[item.Dest] = true
+				if item.Mode != wantMode {
+					t.Errorf("%s mode = %q, want %q", item.Dest, item.Mode, wantMode)
 				}
 			}
 		}
-		if !found {
-			t.Error("hostcmd script not in sync manifest")
+		for dest := range expected {
+			if !found[dest] {
+				t.Errorf("%s not in sync manifest", dest)
+			}
 		}
 	})
 
-	t.Run("hostcmd script omitted when no host_commands", func(t *testing.T) {
+	t.Run("host tool scripts omitted when no host_tools but settings still synced", func(t *testing.T) {
 		t.Setenv("HOME", "/nonexistent-test-home")
 		t.Setenv("ZSH_THEME", "")
 
@@ -795,22 +799,31 @@ func TestBuildSyncManifest(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		var foundSettings bool
 		for _, item := range items {
-			if item.Dest == "/usr/local/bin/hostcmd" {
-				t.Error("hostcmd script should not be in manifest when no host_commands")
+			if item.Dest == "/usr/local/bin/hosttool-mcp" {
+				t.Error("hosttool-mcp script should not be in manifest when no host_tools")
 			}
+			if item.Dest == "/home/agent/.claude/settings.json" {
+				foundSettings = true
+			}
+		}
+		if !foundSettings {
+			t.Error("settings.json should always be in sync manifest")
 		}
 	})
 }
 
-func TestHostCommandParsing(t *testing.T) {
-	t.Run("full command", func(t *testing.T) {
+func TestHostToolParsing(t *testing.T) {
+	t.Run("full tool", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "config.yaml")
-		os.WriteFile(path, []byte(`host_commands:
+		os.WriteFile(path, []byte(`host_tools:
   - name: deploy
+    description: Deploy the app
     cmd: ./deploy.sh
   - name: restart-db
+    description: Restart PostgreSQL
     cmd: systemctl restart postgres
 `), 0644)
 
@@ -818,21 +831,24 @@ func TestHostCommandParsing(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(cfg.HostCommands) != 2 {
-			t.Fatalf("host_commands len = %d, want 2", len(cfg.HostCommands))
+		if len(cfg.HostTools) != 2 {
+			t.Fatalf("host_tools len = %d, want 2", len(cfg.HostTools))
 		}
-		if cfg.HostCommands[0].Name != "deploy" {
-			t.Errorf("name = %q, want %q", cfg.HostCommands[0].Name, "deploy")
+		if cfg.HostTools[0].Name != "deploy" {
+			t.Errorf("name = %q, want %q", cfg.HostTools[0].Name, "deploy")
 		}
-		if cfg.HostCommands[0].Cmd != "./deploy.sh" {
-			t.Errorf("cmd = %q, want %q", cfg.HostCommands[0].Cmd, "./deploy.sh")
+		if cfg.HostTools[0].Description != "Deploy the app" {
+			t.Errorf("description = %q, want %q", cfg.HostTools[0].Description, "Deploy the app")
+		}
+		if cfg.HostTools[0].Cmd != "./deploy.sh" {
+			t.Errorf("cmd = %q, want %q", cfg.HostTools[0].Cmd, "./deploy.sh")
 		}
 	})
 
 	t.Run("empty name rejected", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "config.yaml")
-		os.WriteFile(path, []byte(`host_commands:
+		os.WriteFile(path, []byte(`host_tools:
   - name: ""
     cmd: echo hi
   - name: valid
@@ -843,18 +859,18 @@ func TestHostCommandParsing(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(cfg.HostCommands) != 1 {
-			t.Fatalf("host_commands len = %d, want 1", len(cfg.HostCommands))
+		if len(cfg.HostTools) != 1 {
+			t.Fatalf("host_tools len = %d, want 1", len(cfg.HostTools))
 		}
-		if cfg.HostCommands[0].Name != "valid" {
-			t.Errorf("name = %q, want %q", cfg.HostCommands[0].Name, "valid")
+		if cfg.HostTools[0].Name != "valid" {
+			t.Errorf("name = %q, want %q", cfg.HostTools[0].Name, "valid")
 		}
 	})
 
 	t.Run("empty cmd rejected", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "config.yaml")
-		os.WriteFile(path, []byte(`host_commands:
+		os.WriteFile(path, []byte(`host_tools:
   - name: bad
     cmd: ""
   - name: good
@@ -865,18 +881,18 @@ func TestHostCommandParsing(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(cfg.HostCommands) != 1 {
-			t.Fatalf("host_commands len = %d, want 1", len(cfg.HostCommands))
+		if len(cfg.HostTools) != 1 {
+			t.Fatalf("host_tools len = %d, want 1", len(cfg.HostTools))
 		}
-		if cfg.HostCommands[0].Name != "good" {
-			t.Errorf("name = %q, want %q", cfg.HostCommands[0].Name, "good")
+		if cfg.HostTools[0].Name != "good" {
+			t.Errorf("name = %q, want %q", cfg.HostTools[0].Name, "good")
 		}
 	})
 
 	t.Run("duplicate name rejected", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "config.yaml")
-		os.WriteFile(path, []byte(`host_commands:
+		os.WriteFile(path, []byte(`host_tools:
   - name: deploy
     cmd: echo first
   - name: deploy
@@ -887,133 +903,133 @@ func TestHostCommandParsing(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if len(cfg.HostCommands) != 1 {
-			t.Fatalf("host_commands len = %d, want 1 (duplicate should be filtered)", len(cfg.HostCommands))
+		if len(cfg.HostTools) != 1 {
+			t.Fatalf("host_tools len = %d, want 1 (duplicate should be filtered)", len(cfg.HostTools))
 		}
-		if cfg.HostCommands[0].Cmd != "echo first" {
-			t.Errorf("cmd = %q, want first occurrence", cfg.HostCommands[0].Cmd)
+		if cfg.HostTools[0].Cmd != "echo first" {
+			t.Errorf("cmd = %q, want first occurrence", cfg.HostTools[0].Cmd)
 		}
 	})
 }
 
-func TestMergeHostCommands(t *testing.T) {
+func TestMergeHostTools(t *testing.T) {
 	t.Run("override by name", func(t *testing.T) {
 		base := &SandboxConfig{
-			HostCommands: []HostCommand{
+			HostTools: []HostTool{
 				{Name: "deploy", Cmd: "echo base"},
 				{Name: "test", Cmd: "echo test"},
 			},
 		}
 		override := &SandboxConfig{
-			HostCommands: []HostCommand{
+			HostTools: []HostTool{
 				{Name: "deploy", Cmd: "echo override"},
 			},
 		}
 		merged := mergeConfig(base, override)
-		if len(merged.HostCommands) != 2 {
-			t.Fatalf("host_commands len = %d, want 2", len(merged.HostCommands))
+		if len(merged.HostTools) != 2 {
+			t.Fatalf("host_tools len = %d, want 2", len(merged.HostTools))
 		}
-		for _, hc := range merged.HostCommands {
-			if hc.Name == "deploy" && hc.Cmd != "echo override" {
-				t.Errorf("deploy cmd = %q, want %q", hc.Cmd, "echo override")
+		for _, ht := range merged.HostTools {
+			if ht.Name == "deploy" && ht.Cmd != "echo override" {
+				t.Errorf("deploy cmd = %q, want %q", ht.Cmd, "echo override")
 			}
 		}
 	})
 
 	t.Run("preserves order", func(t *testing.T) {
 		base := &SandboxConfig{
-			HostCommands: []HostCommand{
+			HostTools: []HostTool{
 				{Name: "a", Cmd: "echo a"},
 				{Name: "b", Cmd: "echo b"},
 			},
 		}
 		override := &SandboxConfig{
-			HostCommands: []HostCommand{
+			HostTools: []HostTool{
 				{Name: "c", Cmd: "echo c"},
 			},
 		}
 		merged := mergeConfig(base, override)
-		if len(merged.HostCommands) != 3 {
-			t.Fatalf("host_commands len = %d, want 3", len(merged.HostCommands))
+		if len(merged.HostTools) != 3 {
+			t.Fatalf("host_tools len = %d, want 3", len(merged.HostTools))
 		}
-		if merged.HostCommands[0].Name != "a" {
-			t.Errorf("host_commands[0] = %q, want a", merged.HostCommands[0].Name)
+		if merged.HostTools[0].Name != "a" {
+			t.Errorf("host_tools[0] = %q, want a", merged.HostTools[0].Name)
 		}
-		if merged.HostCommands[2].Name != "c" {
-			t.Errorf("host_commands[2] = %q, want c", merged.HostCommands[2].Name)
+		if merged.HostTools[2].Name != "c" {
+			t.Errorf("host_tools[2] = %q, want c", merged.HostTools[2].Name)
 		}
 	})
 
 	t.Run("empty base", func(t *testing.T) {
 		base := &SandboxConfig{}
 		override := &SandboxConfig{
-			HostCommands: []HostCommand{
+			HostTools: []HostTool{
 				{Name: "deploy", Cmd: "echo deploy"},
 			},
 		}
 		merged := mergeConfig(base, override)
-		if len(merged.HostCommands) != 1 {
-			t.Fatalf("host_commands len = %d, want 1", len(merged.HostCommands))
+		if len(merged.HostTools) != 1 {
+			t.Fatalf("host_tools len = %d, want 1", len(merged.HostTools))
 		}
 	})
 
 	t.Run("empty override", func(t *testing.T) {
 		base := &SandboxConfig{
-			HostCommands: []HostCommand{
+			HostTools: []HostTool{
 				{Name: "deploy", Cmd: "echo deploy"},
 			},
 		}
 		override := &SandboxConfig{}
 		merged := mergeConfig(base, override)
-		if len(merged.HostCommands) != 1 {
-			t.Fatalf("host_commands len = %d, want 1", len(merged.HostCommands))
+		if len(merged.HostTools) != 1 {
+			t.Fatalf("host_tools len = %d, want 1", len(merged.HostTools))
 		}
 	})
 }
 
-func TestHostcmdPortParsing(t *testing.T) {
+func TestHostToolPortParsing(t *testing.T) {
 	t.Run("custom port", func(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "config.yaml")
-		os.WriteFile(path, []byte(`hostcmd_port: 12345
+		os.WriteFile(path, []byte(`host_tool_port: 12345
 `), 0644)
 
 		cfg, err := parseConfigFile(path)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if cfg.HostcmdPort != 12345 {
-			t.Errorf("hostcmd_port = %d, want 12345", cfg.HostcmdPort)
+		if cfg.HostToolPort != 12345 {
+			t.Errorf("host_tool_port = %d, want 12345", cfg.HostToolPort)
 		}
-		if cfg.EffectiveHostcmdPort() != 12345 {
-			t.Errorf("EffectiveHostcmdPort() = %d, want 12345", cfg.EffectiveHostcmdPort())
+		if cfg.EffectiveHostToolPort() != 12345 {
+			t.Errorf("EffectiveHostToolPort() = %d, want 12345", cfg.EffectiveHostToolPort())
 		}
 	})
 
 	t.Run("default port", func(t *testing.T) {
 		cfg := &SandboxConfig{}
-		if cfg.EffectiveHostcmdPort() != DefaultHostcmdPort {
-			t.Errorf("default port = %d, want %d", cfg.EffectiveHostcmdPort(), DefaultHostcmdPort)
+		if cfg.EffectiveHostToolPort() != DefaultHostToolPort {
+			t.Errorf("default port = %d, want %d", cfg.EffectiveHostToolPort(), DefaultHostToolPort)
 		}
 	})
 }
 
-func TestMergeHostcmdPort(t *testing.T) {
+func TestMergeHostToolPort(t *testing.T) {
 	t.Run("workspace overrides global", func(t *testing.T) {
-		base := &SandboxConfig{HostcmdPort: 9000}
-		override := &SandboxConfig{HostcmdPort: 9001}
+		base := &SandboxConfig{HostToolPort: 9000}
+		override := &SandboxConfig{HostToolPort: 9001}
 		merged := mergeConfig(base, override)
-		if merged.HostcmdPort != 9001 {
-			t.Errorf("port = %d, want 9001", merged.HostcmdPort)
+		if merged.HostToolPort != 9001 {
+			t.Errorf("port = %d, want 9001", merged.HostToolPort)
 		}
 	})
 
 	t.Run("global preserved when workspace unset", func(t *testing.T) {
-		base := &SandboxConfig{HostcmdPort: 9000}
+		base := &SandboxConfig{HostToolPort: 9000}
 		override := &SandboxConfig{}
 		merged := mergeConfig(base, override)
-		if merged.HostcmdPort != 9000 {
-			t.Errorf("port = %d, want 9000", merged.HostcmdPort)
+		if merged.HostToolPort != 9000 {
+			t.Errorf("port = %d, want 9000", merged.HostToolPort)
 		}
 	})
 
@@ -1021,11 +1037,11 @@ func TestMergeHostcmdPort(t *testing.T) {
 		base := &SandboxConfig{}
 		override := &SandboxConfig{}
 		merged := mergeConfig(base, override)
-		if merged.HostcmdPort != 0 {
-			t.Errorf("port = %d, want 0 (unset)", merged.HostcmdPort)
+		if merged.HostToolPort != 0 {
+			t.Errorf("port = %d, want 0 (unset)", merged.HostToolPort)
 		}
-		if merged.EffectiveHostcmdPort() != DefaultHostcmdPort {
-			t.Errorf("effective port = %d, want %d", merged.EffectiveHostcmdPort(), DefaultHostcmdPort)
+		if merged.EffectiveHostToolPort() != DefaultHostToolPort {
+			t.Errorf("effective port = %d, want %d", merged.EffectiveHostToolPort(), DefaultHostToolPort)
 		}
 	})
 }

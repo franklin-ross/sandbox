@@ -1,0 +1,127 @@
+#!/usr/bin/env node
+"use strict";
+
+const { createConnection } = require("node:net");
+const { readFileSync } = require("node:fs");
+const { createInterface: readline } = require("node:readline");
+
+const tools = JSON.parse(readFileSync("/opt/sandbox-host-tools.json", "utf8"));
+const session = process.env.SANDBOX_SESSION;
+const port = parseInt(process.env.SANDBOX_HOSTTOOL_PORT || "9847", 10);
+const host = "host.docker.internal";
+
+function send(obj) {
+    process.stdout.write(JSON.stringify(obj) + "\n");
+}
+
+function callDaemon(toolName) {
+    return new Promise((resolve, reject) => {
+        const client = createConnection({ host, port }, () => {
+            client.write(
+                JSON.stringify({
+                    type: "execute",
+                    session,
+                    command: toolName,
+                }) + "\n",
+            );
+        });
+        let buf = "";
+        client.on("data", (chunk) => {
+            buf += chunk;
+        });
+        client.on("end", () => {
+            try {
+                const resp = JSON.parse(buf.trim());
+                resolve(resp);
+            } catch (e) {
+                reject(new Error("bad response from host daemon"));
+            }
+        });
+        client.on("error", (err) => reject(err));
+    });
+}
+
+const rl = readline({ input: process.stdin });
+rl.on("line", (line) => {
+    if (line.trim()) handleMessage(JSON.parse(line));
+});
+
+async function handleMessage(msg) {
+    const { id, method, params } = msg;
+
+    if (method === "initialize") {
+        send({
+            jsonrpc: "2.0",
+            id,
+            result: {
+                protocolVersion: "2024-11-05",
+                capabilities: { tools: {} },
+                serverInfo: { name: "host-tools", version: "1.0.0" },
+            },
+        });
+        return;
+    }
+
+    if (method === "notifications/initialized") return;
+
+    if (method === "tools/list") {
+        send({
+            jsonrpc: "2.0",
+            id,
+            result: {
+                tools: tools.map((t) => ({
+                    name: t.name,
+                    description: t.description || `Run host tool: ${t.name}`,
+                    inputSchema: { type: "object", properties: {} },
+                })),
+            },
+        });
+        return;
+    }
+
+    if (method === "tools/call") {
+        const toolName = params.name;
+        try {
+            const resp = await callDaemon(toolName);
+            const isError = resp.exit_code !== 0;
+            send({
+                jsonrpc: "2.0",
+                id,
+                result: {
+                    content: [
+                        {
+                            type: "text",
+                            text:
+                                resp.output ||
+                                (isError
+                                    ? `Exit code: ${resp.exit_code}`
+                                    : "OK"),
+                        },
+                    ],
+                    isError,
+                },
+            });
+        } catch (err) {
+            send({
+                jsonrpc: "2.0",
+                id,
+                result: {
+                    content: [
+                        {
+                            type: "text",
+                            text: `Failed to call host tool: ${err.message}`,
+                        },
+                    ],
+                    isError: true,
+                },
+            });
+        }
+        return;
+    }
+
+    send({
+        jsonrpc: "2.0",
+        id,
+        error: { code: -32601, message: `Method not found: ${method}` },
+    });
+}

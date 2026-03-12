@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
 	"os"
@@ -405,18 +407,13 @@ func TestContainerLabels(t *testing.T) {
 	}
 }
 
-// startHostcmdContainer creates a container, starts a hostcmd daemon on the
-// host, registers a session, and syncs the hostcmd client script into the
-// container. Returns the container name, session ID, and daemon port.
-func startHostcmdContainer(t *testing.T, commands []HostCommand) (container, sessionID string, port int) {
+// startHostToolDaemon starts a daemon on a random port, registers a session
+// with the given tools, and returns the session ID and port.
+func startHostToolDaemon(t *testing.T, tools []HostTool) (sessionID string, port int) {
 	t.Helper()
 
 	wsPath := t.TempDir()
-	name := ContainerName(wsPath) + "-hc"
-	removeContainer(t, name)
 
-	// Start daemon as a goroutine (EnsureHostcmdDaemon forks a subprocess
-	// which doesn't work from test binaries).
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("find free port: %v", err)
@@ -425,7 +422,7 @@ func startHostcmdContainer(t *testing.T, commands []HostCommand) (container, ses
 	l.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	go RunHostcmdDaemon(ctx, port)
+	go RunHostToolDaemon(ctx, port)
 	t.Cleanup(cancel)
 
 	// Wait for daemon to be ready.
@@ -439,89 +436,80 @@ func startHostcmdContainer(t *testing.T, commands []HostCommand) (container, ses
 	}
 
 	sessionID = GenerateSessionID()
-	if err := RegisterHostcmdSession(port, sessionID, commands, wsPath); err != nil {
+	if err := RegisterHostToolSession(port, sessionID, tools, wsPath); err != nil {
 		t.Fatalf("register session: %v", err)
 	}
-	t.Cleanup(func() { UnregisterHostcmdSession(port, sessionID) })
+	t.Cleanup(func() { UnregisterHostToolSession(port, sessionID) })
 
-	err = DockerRun("run", "-d",
-		"--name", name,
-		"--label", LabelSel,
-		"-v", wsPath+":"+wsPath,
-		testImageName)
-	if err != nil {
-		t.Fatalf("docker run: %v", err)
-	}
-
-	// Sync the hostcmd script into the container.
-	scriptItem := SyncItem{
-		Data:  hostcmdScript,
-		Dest:  "/usr/local/bin/hostcmd",
-		Mode:  "0755",
-		Owner: "root:root",
-	}
-	if err := syncItems(name, []SyncItem{scriptItem}); err != nil {
-		t.Fatalf("sync hostcmd script: %v", err)
-	}
-
-	return name, sessionID, port
+	return sessionID, port
 }
 
-func TestHostcmdEndToEnd(t *testing.T) {
-	requireDocker(t)
-	useTestImage(t)
-	buildTestImage(t)
+// execDaemonTool sends an execute request to the daemon and returns the response.
+func execDaemonTool(port int, sessionID, toolName string) (hostToolResponse, error) {
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
+	if err != nil {
+		return hostToolResponse{}, err
+	}
+	defer conn.Close()
 
-	commands := []HostCommand{
+	msg := hostToolMessage{Type: "execute", Session: sessionID, Command: toolName}
+	data, _ := json.Marshal(msg)
+	data = append(data, '\n')
+	conn.Write(data)
+
+	scanner := bufio.NewScanner(conn)
+	if !scanner.Scan() {
+		return hostToolResponse{}, fmt.Errorf("no response")
+	}
+	var resp hostToolResponse
+	json.Unmarshal(scanner.Bytes(), &resp)
+	return resp, nil
+}
+
+func TestHosttoolEndToEnd(t *testing.T) {
+	tools := []HostTool{
 		{Name: "greet", Cmd: "echo hello-from-host"},
 	}
-	name, sessionID, port := startHostcmdContainer(t, commands)
+	sessionID, port := startHostToolDaemon(t, tools)
 
-	out, err := exec.Command("docker", "exec",
-		"-e", "SANDBOX_SESSION="+sessionID,
-		"-e", fmt.Sprintf("SANDBOX_HOSTCMD_PORT=%d", port),
-		name, "hostcmd", "greet").CombinedOutput()
+	resp, err := execDaemonTool(port, sessionID, "greet")
 	if err != nil {
-		t.Fatalf("hostcmd greet: %v\n%s", err, out)
+		t.Fatalf("execute greet: %v", err)
 	}
-	if got := strings.TrimSpace(string(out)); got != "hello-from-host" {
+	if resp.ExitCode != 0 {
+		t.Fatalf("exit code = %d, output = %q", resp.ExitCode, resp.Output)
+	}
+	if got := strings.TrimSpace(resp.Output); got != "hello-from-host" {
 		t.Errorf("output = %q, want %q", got, "hello-from-host")
 	}
 }
 
-func TestHostcmdUnknownCommand(t *testing.T) {
-	requireDocker(t)
-	useTestImage(t)
-	buildTestImage(t)
-
-	commands := []HostCommand{
+func TestHosttoolUnknownCommand(t *testing.T) {
+	tools := []HostTool{
 		{Name: "deploy", Cmd: "echo deploy"},
 	}
-	name, sessionID, port := startHostcmdContainer(t, commands)
+	sessionID, port := startHostToolDaemon(t, tools)
 
-	out, err := exec.Command("docker", "exec",
-		"-e", "SANDBOX_SESSION="+sessionID,
-		"-e", fmt.Sprintf("SANDBOX_HOSTCMD_PORT=%d", port),
-		name, "hostcmd", "bogus").CombinedOutput()
-	if err == nil {
+	resp, err := execDaemonTool(port, sessionID, "bogus")
+	if err != nil {
+		t.Fatalf("execute bogus: %v", err)
+	}
+	if resp.ExitCode == 0 {
 		t.Fatal("expected nonzero exit for unknown command")
 	}
-	if !strings.Contains(string(out), "unknown command") {
-		t.Errorf("output = %q, want to contain 'unknown command'", string(out))
+	if !strings.Contains(resp.Output, "unknown command") {
+		t.Errorf("output = %q, want to contain 'unknown command'", resp.Output)
 	}
 }
 
-func TestHostcmdConcurrent(t *testing.T) {
-	requireDocker(t)
-	useTestImage(t)
-	buildTestImage(t)
-
-	commands := []HostCommand{
+func TestHosttoolConcurrent(t *testing.T) {
+	tools := []HostTool{
 		{Name: "echo-a", Cmd: "echo aaa"},
 		{Name: "echo-b", Cmd: "echo bbb"},
 		{Name: "echo-c", Cmd: "echo ccc"},
 	}
-	name, sessionID, port := startHostcmdContainer(t, commands)
+	sessionID, port := startHostToolDaemon(t, tools)
 
 	type result struct {
 		name   string
@@ -530,25 +518,22 @@ func TestHostcmdConcurrent(t *testing.T) {
 	}
 
 	ch := make(chan result, 3)
-	for _, cmdName := range []string{"echo-a", "echo-b", "echo-c"} {
+	for _, toolName := range []string{"echo-a", "echo-b", "echo-c"} {
 		go func(n string) {
-			out, err := exec.Command("docker", "exec",
-				"-e", "SANDBOX_SESSION="+sessionID,
-				"-e", fmt.Sprintf("SANDBOX_HOSTCMD_PORT=%d", port),
-				name, "hostcmd", n).CombinedOutput()
-			ch <- result{name: n, output: strings.TrimSpace(string(out)), err: err}
-		}(cmdName)
+			resp, err := execDaemonTool(port, sessionID, n)
+			ch <- result{name: n, output: strings.TrimSpace(resp.Output), err: err}
+		}(toolName)
 	}
 
 	expected := map[string]string{"echo-a": "aaa", "echo-b": "bbb", "echo-c": "ccc"}
 	for i := 0; i < 3; i++ {
 		r := <-ch
 		if r.err != nil {
-			t.Errorf("hostcmd %s failed: %v (%s)", r.name, r.err, r.output)
+			t.Errorf("tool %s failed: %v (%s)", r.name, r.err, r.output)
 			continue
 		}
 		if want := expected[r.name]; r.output != want {
-			t.Errorf("hostcmd %s output = %q, want %q", r.name, r.output, want)
+			t.Errorf("tool %s output = %q, want %q", r.name, r.output, want)
 		}
 	}
 }

@@ -184,7 +184,7 @@ func DockerExec(container, workdir string, cfg *SandboxConfig, extraEnv map[stri
 		}
 	}
 
-	// Extra env vars (e.g. session-specific hostcmd vars)
+	// Extra env vars (e.g. session-specific host tool vars)
 	if len(extraEnv) > 0 {
 		keys := make([]string, 0, len(extraEnv))
 		for k := range extraEnv {

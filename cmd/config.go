@@ -10,8 +10,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// DefaultHostcmdPort is the default TCP port for the hostcmd daemon.
-const DefaultHostcmdPort = 9847
+// DefaultHostToolPort is the default TCP port for the host tool daemon.
+const DefaultHostToolPort = 9847
 
 // SandboxConfig holds the user-editable sandbox configuration.
 type SandboxConfig struct {
@@ -19,14 +19,15 @@ type SandboxConfig struct {
 	Env          map[string]string `yaml:"env"`
 	Firewall     FirewallConfig    `yaml:"firewall"`
 	OnSync       []OnSyncHook      `yaml:"on_sync"`
-	HostCommands []HostCommand     `yaml:"host_commands"`
-	HostcmdPort  int               `yaml:"hostcmd_port"`
+	HostTools    []HostTool        `yaml:"host_tools"`
+	HostToolPort int               `yaml:"host_tool_port"`
 }
 
-// HostCommand describes a command the agent can trigger on the host.
-type HostCommand struct {
-	Name string `yaml:"name"`
-	Cmd  string `yaml:"cmd"`
+// HostTool describes a command the agent can trigger on the host.
+type HostTool struct {
+	Name        string `yaml:"name"`
+	Description string `yaml:"description"`
+	Cmd         string `yaml:"cmd"`
 }
 
 // OnSyncHook describes a command to run inside the container after sync.
@@ -138,12 +139,14 @@ firewall:
 #   - cmd: chmod 600 ~/.ssh/*
 #     root: true
 
-# host_commands:
+# host_tools:
 #   - name: deploy
+#     description: Deploy the app to staging
 #     cmd: ./deploy.sh
 #   - name: restart-db
+#     description: Restart the PostgreSQL database
 #     cmd: systemctl restart postgres
-# hostcmd_port: 9847
+# host_tool_port: 9847
 `
 
 func parseConfigFile(path string) (*SandboxConfig, error) {
@@ -170,26 +173,26 @@ func parseConfigFile(path string) (*SandboxConfig, error) {
 	}
 	cfg.Firewall.Allow = valid
 
-	// Validate host_commands
-	seenCmds := make(map[string]bool)
-	var validCmds []HostCommand
-	for _, hc := range cfg.HostCommands {
-		if strings.TrimSpace(hc.Name) == "" {
-			fmt.Fprintf(os.Stderr, "warning: host_command with empty name, skipping\n")
+	// Validate host_tools
+	seenTools := make(map[string]bool)
+	var validTools []HostTool
+	for _, ht := range cfg.HostTools {
+		if strings.TrimSpace(ht.Name) == "" {
+			fmt.Fprintf(os.Stderr, "warning: host_tool with empty name, skipping\n")
 			continue
 		}
-		if strings.TrimSpace(hc.Cmd) == "" {
-			fmt.Fprintf(os.Stderr, "warning: host_command %q with empty cmd, skipping\n", hc.Name)
+		if strings.TrimSpace(ht.Cmd) == "" {
+			fmt.Fprintf(os.Stderr, "warning: host_tool %q with empty cmd, skipping\n", ht.Name)
 			continue
 		}
-		if seenCmds[hc.Name] {
-			fmt.Fprintf(os.Stderr, "warning: duplicate host_command %q, skipping\n", hc.Name)
+		if seenTools[ht.Name] {
+			fmt.Fprintf(os.Stderr, "warning: duplicate host_tool %q, skipping\n", ht.Name)
 			continue
 		}
-		seenCmds[hc.Name] = true
-		validCmds = append(validCmds, hc)
+		seenTools[ht.Name] = true
+		validTools = append(validTools, ht)
 	}
-	cfg.HostCommands = validCmds
+	cfg.HostTools = validTools
 
 	// Validate on_sync hooks
 	var validHooks []OnSyncHook
@@ -289,40 +292,40 @@ func mergeConfig(base, override *SandboxConfig) *SandboxConfig {
 	result.OnSync = append(result.OnSync, base.OnSync...)
 	result.OnSync = append(result.OnSync, override.OnSync...)
 
-	// HostCommands: override replaces base by name (like sync by dest)
-	cmdMap := make(map[string]HostCommand)
-	var cmdOrder []string
-	for _, hc := range base.HostCommands {
-		if _, exists := cmdMap[hc.Name]; !exists {
-			cmdOrder = append(cmdOrder, hc.Name)
+	// HostTools: override replaces base by name (like sync by dest)
+	toolMap := make(map[string]HostTool)
+	var toolOrder []string
+	for _, ht := range base.HostTools {
+		if _, exists := toolMap[ht.Name]; !exists {
+			toolOrder = append(toolOrder, ht.Name)
 		}
-		cmdMap[hc.Name] = hc
+		toolMap[ht.Name] = ht
 	}
-	for _, hc := range override.HostCommands {
-		if _, exists := cmdMap[hc.Name]; !exists {
-			cmdOrder = append(cmdOrder, hc.Name)
+	for _, ht := range override.HostTools {
+		if _, exists := toolMap[ht.Name]; !exists {
+			toolOrder = append(toolOrder, ht.Name)
 		}
-		cmdMap[hc.Name] = hc
+		toolMap[ht.Name] = ht
 	}
-	for _, name := range cmdOrder {
-		result.HostCommands = append(result.HostCommands, cmdMap[name])
+	for _, name := range toolOrder {
+		result.HostTools = append(result.HostTools, toolMap[name])
 	}
 
-	// HostcmdPort: workspace overrides global
-	result.HostcmdPort = base.HostcmdPort
-	if override.HostcmdPort != 0 {
-		result.HostcmdPort = override.HostcmdPort
+	// HostToolPort: workspace overrides global
+	result.HostToolPort = base.HostToolPort
+	if override.HostToolPort != 0 {
+		result.HostToolPort = override.HostToolPort
 	}
 
 	return result
 }
 
-// EffectiveHostcmdPort returns the configured port or the default.
-func (c *SandboxConfig) EffectiveHostcmdPort() int {
-	if c.HostcmdPort != 0 {
-		return c.HostcmdPort
+// EffectiveHostToolPort returns the configured port or the default.
+func (c *SandboxConfig) EffectiveHostToolPort() int {
+	if c.HostToolPort != 0 {
+		return c.HostToolPort
 	}
-	return DefaultHostcmdPort
+	return DefaultHostToolPort
 }
 
 func generateEnvFile(env map[string]string) []byte {

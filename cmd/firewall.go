@@ -24,7 +24,7 @@ type resolveResult struct {
 
 // resolveFirewallEntries resolves all domain entries and returns per-entry IP
 // lists. CIDR entries are returned as-is. Note: host.docker.internal (for
-// hostcmd) is resolved separately inside the container via resolveHostGateway.
+// host tools) is resolved separately inside the container via resolveHostGateway.
 func resolveFirewallEntries(cfg *SandboxConfig) (domains []resolvedEntry, cidrs []FirewallEntry) {
 	for _, e := range cfg.Firewall.Allow {
 		if e.Domain != "" {
@@ -220,9 +220,9 @@ func firewallConfigHash(cfg *SandboxConfig) []byte {
 			fmt.Fprintf(h, "%d", p)
 		}
 	}
-	// Include hostcmd port so changes trigger firewall re-sync.
-	if len(cfg.HostCommands) > 0 {
-		fmt.Fprintf(h, "hostcmd:%d", cfg.EffectiveHostcmdPort())
+	// Include host tool port so changes trigger firewall re-sync.
+	if len(cfg.HostTools) > 0 {
+		fmt.Fprintf(h, "hosttool:%d", cfg.EffectiveHostToolPort())
 	}
 	return h.Sum(nil)
 }

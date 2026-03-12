@@ -31,10 +31,10 @@ func startTestDaemon(t *testing.T) (int, context.CancelFunc) {
 
 	ready := make(chan struct{})
 	go func() {
-		// Tiny race window: bind the port in RunHostcmdDaemon.
+		// Tiny race window: bind the port in RunHostToolDaemon.
 		// Signal ready once we know it's started (or errored).
 		close(ready)
-		RunHostcmdDaemon(ctx, port)
+		RunHostToolDaemon(ctx, port)
 	}()
 	<-ready
 
@@ -58,10 +58,10 @@ func TestDaemonRegisterAndExecute(t *testing.T) {
 	port, _ := startTestDaemon(t)
 
 	sessionID := "test-session-1"
-	commands := []HostCommand{
+	tools := []HostTool{
 		{Name: "hello", Cmd: "echo hello-world"},
 	}
-	if err := RegisterHostcmdSession(port, sessionID, commands, t.TempDir()); err != nil {
+	if err := RegisterHostToolSession(port, sessionID, tools, t.TempDir()); err != nil {
 		t.Fatalf("register: %v", err)
 	}
 
@@ -79,10 +79,10 @@ func TestDaemonRejectUnknownCommand(t *testing.T) {
 	port, _ := startTestDaemon(t)
 
 	sessionID := "test-session-2"
-	commands := []HostCommand{
+	tools := []HostTool{
 		{Name: "deploy", Cmd: "echo deploy"},
 	}
-	if err := RegisterHostcmdSession(port, sessionID, commands, t.TempDir()); err != nil {
+	if err := RegisterHostToolSession(port, sessionID, tools, t.TempDir()); err != nil {
 		t.Fatalf("register: %v", err)
 	}
 
@@ -114,10 +114,10 @@ func TestDaemonNonzeroExitCode(t *testing.T) {
 	port, _ := startTestDaemon(t)
 
 	sessionID := "test-session-exit"
-	commands := []HostCommand{
+	tools := []HostTool{
 		{Name: "fail", Cmd: "exit 42"},
 	}
-	if err := RegisterHostcmdSession(port, sessionID, commands, t.TempDir()); err != nil {
+	if err := RegisterHostToolSession(port, sessionID, tools, t.TempDir()); err != nil {
 		t.Fatalf("register: %v", err)
 	}
 
@@ -131,12 +131,12 @@ func TestDaemonMultipleSessions(t *testing.T) {
 	port, _ := startTestDaemon(t)
 
 	// Register two sessions with different commands for the same name.
-	if err := RegisterHostcmdSession(port, "s1", []HostCommand{
+	if err := RegisterHostToolSession(port, "s1", []HostTool{
 		{Name: "greet", Cmd: "echo from-session-1"},
 	}, t.TempDir()); err != nil {
 		t.Fatalf("register s1: %v", err)
 	}
-	if err := RegisterHostcmdSession(port, "s2", []HostCommand{
+	if err := RegisterHostToolSession(port, "s2", []HostTool{
 		{Name: "greet", Cmd: "echo from-session-2"},
 	}, t.TempDir()); err != nil {
 		t.Fatalf("register s2: %v", err)
@@ -157,7 +157,7 @@ func TestDaemonUnregister(t *testing.T) {
 	port, _ := startTestDaemon(t)
 
 	sessionID := "test-unregister"
-	if err := RegisterHostcmdSession(port, sessionID, []HostCommand{
+	if err := RegisterHostToolSession(port, sessionID, []HostTool{
 		{Name: "hello", Cmd: "echo hi"},
 	}, t.TempDir()); err != nil {
 		t.Fatalf("register: %v", err)
@@ -169,7 +169,7 @@ func TestDaemonUnregister(t *testing.T) {
 		t.Fatalf("execute before unregister failed: %d", resp.ExitCode)
 	}
 
-	UnregisterHostcmdSession(port, sessionID)
+	UnregisterHostToolSession(port, sessionID)
 
 	// Should fail after unregister.
 	resp = sendExecute(t, port, sessionID, "hello")
@@ -178,29 +178,29 @@ func TestDaemonUnregister(t *testing.T) {
 	}
 }
 
-func TestEnsureHostcmdDaemonSkipsWhenRunning(t *testing.T) {
-	// Start a daemon directly (EnsureHostcmdDaemon forks a subprocess which
-	// doesn't work in test binaries). Then verify EnsureHostcmdDaemon detects
+func TestEnsureHostToolDaemonSkipsWhenRunning(t *testing.T) {
+	// Start a daemon directly (EnsureHostToolDaemon forks a subprocess which
+	// doesn't work in test binaries). Then verify EnsureHostToolDaemon detects
 	// the existing daemon and returns immediately.
 	port, _ := startTestDaemon(t)
 
 	// Should detect the existing daemon and succeed without forking.
-	if err := EnsureHostcmdDaemon(port); err != nil {
-		t.Fatalf("EnsureHostcmdDaemon with running daemon: %v", err)
+	if err := EnsureHostToolDaemon(port); err != nil {
+		t.Fatalf("EnsureHostToolDaemon with running daemon: %v", err)
 	}
 }
 
 // sendExecute connects to the daemon and sends an execute request.
-func sendExecute(t *testing.T, port int, sessionID, command string) hostcmdResponse {
+func sendExecute(t *testing.T, port int, sessionID, command string) hostToolResponse {
 	t.Helper()
-	return sendMsg(t, port, hostcmdMessage{
+	return sendMsg(t, port, hostToolMessage{
 		Type:    "execute",
 		Session: sessionID,
 		Command: command,
 	})
 }
 
-func sendMsg(t *testing.T, port int, msg hostcmdMessage) hostcmdResponse {
+func sendMsg(t *testing.T, port int, msg hostToolMessage) hostToolResponse {
 	t.Helper()
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	conn, err := net.DialTimeout("tcp", addr, time.Second)
@@ -226,7 +226,7 @@ func sendMsg(t *testing.T, port int, msg hostcmdMessage) hostcmdResponse {
 		}
 	}
 
-	var resp hostcmdResponse
+	var resp hostToolResponse
 	if err := json.Unmarshal(buf, &resp); err != nil {
 		t.Fatalf("unmarshal response %q: %v", string(buf), err)
 	}

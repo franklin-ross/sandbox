@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	_ "embed"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,8 +15,8 @@ import (
 //go:embed image/init-firewall.sh
 var firewallScript []byte
 
-//go:embed image/hostcmd
-var hostcmdScript []byte
+//go:embed image/hosttool-mcp
+var hosttoolMCPScript []byte
 
 // syncStatus prints a status line that overwrites itself.
 func syncStatus(msg string) {
@@ -134,17 +135,48 @@ func buildSyncManifest(cfg *SandboxConfig) ([]SyncItem, error) {
 		}
 	}
 
-	// 5. Hostcmd helper script (only when host_commands are configured)
-	if len(cfg.HostCommands) > 0 {
+	// 5. Host tool files (only when host_tools are configured)
+	if len(cfg.HostTools) > 0 {
+		// 5a. Tool definitions JSON for the MCP server
+		type toolDef struct {
+			Name        string `json:"name"`
+			Description string `json:"description"`
+		}
+		defs := make([]toolDef, len(cfg.HostTools))
+		for i, ht := range cfg.HostTools {
+			defs[i] = toolDef{Name: ht.Name, Description: ht.Description}
+		}
+		toolsJSON, _ := json.Marshal(defs)
 		items = append(items, SyncItem{
-			Data:  hostcmdScript,
-			Dest:  "/usr/local/bin/hostcmd",
+			Data:  toolsJSON,
+			Dest:  "/opt/sandbox-host-tools.json",
+			Mode:  "0644",
+			Owner: "root:root",
+		})
+
+		// 5b. MCP server script
+		items = append(items, SyncItem{
+			Data:  hosttoolMCPScript,
+			Dest:  "/usr/local/bin/hosttool-mcp",
 			Mode:  "0755",
 			Owner: "root:root",
 		})
+
 	}
 
-	// 6. Explicit sync rules from config
+	// 6a. Claude settings.json (always synced — sandbox defaults + user overrides)
+	settingsData, err := buildClaudeSettings()
+	if err != nil {
+		return nil, fmt.Errorf("build claude settings: %w", err)
+	}
+	items = append(items, SyncItem{
+		Data:  settingsData,
+		Dest:  "/home/agent/.claude/settings.json",
+		Mode:  "0644",
+		Owner: "agent:agent",
+	})
+
+	// 7. Explicit sync rules from config
 	for _, rule := range cfg.Sync {
 		mode := rule.Mode
 		if mode == "" {
@@ -186,6 +218,60 @@ func buildSyncManifest(cfg *SandboxConfig) ([]SyncItem, error) {
 	}
 
 	return items, nil
+}
+
+// buildClaudeSettings reads the user's Claude settings from ~/.sandbox/home/.claude/settings.json
+// (if it exists), merges in sandbox defaults, and returns the result.
+func buildClaudeSettings() ([]byte, error) {
+	settings := make(map[string]interface{})
+
+	home, err := os.UserHomeDir()
+	if err == nil {
+		userSettings := filepath.Join(home, ".sandbox", "home", ".claude", "settings.json")
+		if data, err := os.ReadFile(userSettings); err == nil {
+			json.Unmarshal(data, &settings)
+		}
+	}
+
+	// Skip the "are you sure?" prompt — the container IS the sandbox.
+	settings["skipDangerousModePermissionPrompt"] = true
+
+	return json.Marshal(settings)
+}
+
+// mergeClaudeJSON reads the existing /home/agent/.claude.json from inside the
+// container, merges in the host-tools MCP server config, and writes it back.
+// This avoids overwriting OAuth tokens and other data Claude Code stores there.
+func mergeClaudeJSON(container string) error {
+	claudeJSON := make(map[string]interface{})
+
+	// Read whatever Claude Code has already written inside the container.
+	out, err := exec.Command("docker", "exec", container, "cat", "/home/agent/.claude.json").Output()
+	if err == nil {
+		json.Unmarshal(out, &claudeJSON)
+	}
+
+	mcpServers, ok := claudeJSON["mcpServers"].(map[string]interface{})
+	if !ok {
+		mcpServers = make(map[string]interface{})
+	}
+	mcpServers["host-tools"] = map[string]interface{}{
+		"command": "/usr/local/bin/hosttool-mcp",
+	}
+	claudeJSON["mcpServers"] = mcpServers
+
+	data, err := json.Marshal(claudeJSON)
+	if err != nil {
+		return fmt.Errorf("marshal .claude.json: %w", err)
+	}
+
+	if err := copyToContainer(container, data, "/home/agent/.claude.json"); err != nil {
+		return fmt.Errorf("write .claude.json: %w", err)
+	}
+	if err := exec.Command("docker", "exec", "-u", "root", container, "chown", "agent:agent", "/home/agent/.claude.json").Run(); err != nil {
+		return fmt.Errorf("chown .claude.json: %w", err)
+	}
+	return nil
 }
 
 // SyncContainer builds the sync manifest and resolves firewall DNS in parallel,
@@ -253,10 +339,10 @@ func SyncContainer(name, wsPath string, force bool) error {
 		syncStatusDone()
 	}
 
-	// Resolve host gateway from inside the container for hostcmd firewall rules.
+	// Resolve host gateway from inside the container for host tool firewall rules.
 	// host.docker.internal only resolves inside containers, not on the host.
-	if len(cfg.HostCommands) > 0 {
-		if gw := resolveHostGateway(name, cfg.EffectiveHostcmdPort()); gw != nil {
+	if len(cfg.HostTools) > 0 {
+		if gw := resolveHostGateway(name, cfg.EffectiveHostToolPort()); gw != nil {
 			resolved.domains = append(resolved.domains, *gw)
 		}
 	}
@@ -279,6 +365,17 @@ func SyncContainer(name, wsPath string, force bool) error {
 		if err := exec.Command("docker", "exec", "-u", "root", name, "/opt/init-firewall.sh").Run(); err != nil {
 			syncStatusDone()
 			fmt.Fprintf(os.Stderr, "warning: firewall update failed: %v\n", err)
+		}
+		syncStatusDone()
+	}
+
+	// Merge MCP server config into .claude.json (reads existing file first to
+	// preserve OAuth tokens and other data Claude Code stores there).
+	if len(cfg.HostTools) > 0 {
+		syncStatus("configuring MCP server...")
+		if err := mergeClaudeJSON(name); err != nil {
+			syncStatusDone()
+			return err
 		}
 		syncStatusDone()
 	}

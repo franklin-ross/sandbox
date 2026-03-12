@@ -10,20 +10,20 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var hostcmdDaemonPort int
+var hostToolDaemonPort int
 
-var hostcmdDaemonCmd = &cobra.Command{
+var hostToolDaemonCmd = &cobra.Command{
 	Use:    "daemon",
-	Short:  "Run the host command daemon (internal)",
+	Short:  "Run the host tool daemon (internal)",
 	Hidden: true,
 	RunE: func(_ *cobra.Command, _ []string) error {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
-		return cmd.RunHostcmdDaemon(ctx, hostcmdDaemonPort)
+		return cmd.RunHostToolDaemon(ctx, hostToolDaemonPort)
 	},
 }
 
 func init() {
-	hostcmdDaemonCmd.Flags().IntVar(&hostcmdDaemonPort, "port", cmd.DefaultHostcmdPort, "TCP port to listen on")
-	cmd.RootCmd.AddCommand(hostcmdDaemonCmd)
+	hostToolDaemonCmd.Flags().IntVar(&hostToolDaemonPort, "port", cmd.DefaultHostToolPort, "TCP port to listen on")
+	cmd.RootCmd.AddCommand(hostToolDaemonCmd)
 }

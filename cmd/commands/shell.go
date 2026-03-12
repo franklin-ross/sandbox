@@ -32,20 +32,20 @@ func runShell(wsPath string) error {
 	}
 
 	var extraEnv map[string]string
-	if len(cfg.HostCommands) > 0 {
-		port := cfg.EffectiveHostcmdPort()
-		if err := cmd.EnsureHostcmdDaemon(port); err != nil {
-			return fmt.Errorf("hostcmd daemon: %w", err)
+	if len(cfg.HostTools) > 0 {
+		port := cfg.EffectiveHostToolPort()
+		if err := cmd.EnsureHostToolDaemon(port); err != nil {
+			return fmt.Errorf("host tool daemon: %w", err)
 		}
 		sessionID := cmd.GenerateSessionID()
-		if err := cmd.RegisterHostcmdSession(port, sessionID, cfg.HostCommands, sandboxRoot); err != nil {
-			return fmt.Errorf("register hostcmd session: %w", err)
+		if err := cmd.RegisterHostToolSession(port, sessionID, cfg.HostTools, sandboxRoot); err != nil {
+			return fmt.Errorf("register host tool session: %w", err)
 		}
-		defer cmd.UnregisterHostcmdSession(port, sessionID)
+		defer cmd.UnregisterHostToolSession(port, sessionID)
 
 		extraEnv = map[string]string{
-			"SANDBOX_SESSION":      sessionID,
-			"SANDBOX_HOSTCMD_PORT": fmt.Sprintf("%d", port),
+			"SANDBOX_SESSION":       sessionID,
+			"SANDBOX_HOSTTOOL_PORT": fmt.Sprintf("%d", port),
 		}
 	}
 
