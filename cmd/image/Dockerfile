@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y \
     build-essential pkg-config libssl-dev \
     ca-certificates gnupg \
     iptables dnsutils iproute2 \
-    chromium \
+    chromium xvfb \
     python3 python3-pip python3-venv \
     ruby ruby-dev \
     && rm -rf /var/cache/apt/archives/* /var/lib/apt/lists/*
