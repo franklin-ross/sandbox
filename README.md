@@ -16,16 +16,35 @@ The official Claude Code Docker sandbox has an opinionated auth flow that makes 
 
 ## Install
 
-Download the binary for your architecture from the releases page, rename it to `sandbox`, and put it somewhere on your $PATH. Run `sandbox config init` in your user directory.
-
-Or clone the repo and build from source:
+Download the binary for your architecture from the [releases page](https://github.com/franklin-ross/sandbox/releases) and put it on your `$PATH`:
 
 ```bash
-# Install sandbox binary to ~/bin
-task install
+APPLE_SILICON=sandbox-darwin-arm64
+APPLE_INTEL=sandbox-darwin-amd64
+LINUX_INTEL=sandbox-linux-amd64
+LINUX_ARM=sandbox-linux-arm64
+
+ARCH=$APPLE_SILICON # Whichever makes sense for you
+BIN=~/bin/sandbox #Or somewhere else on your $PATH
+
+wget -O "$BIN" https://github.com/franklin-ross/sandbox/releases/latest/download/$ARCH
+chmod +x "$BIN"
+# macOS only — remove Gatekeeper quarantine
+xattr -d com.apple.quarantine "$BIN"
+# Initialise global config at ~/.sandbox/
+sandbox config init
+# Review the default firewall and sync configuration
+code ~/.sandbox/config.yaml
 ```
 
-Requires Docker to be running.
+### Building From Source
+
+Alternatively, clone the repo and install from source:
+
+```bash
+task install        # Install to ~/bin/sandbox
+sandbox config init # etc.
+```
 
 ## Usage
 
@@ -37,15 +56,14 @@ Claude credentials live inside the sandbox, so you need to log in once for each 
 # Global initialisation (run once)
 sandbox config init
 
-# Open a shell in a running sandbox
-sandbox shell ~/projects/myapp
-
 # Open Claude in a directory (with --dangerously-skip-permissions)
 sandbox claude project/
 # Pass args through to Claude
 sandbox claude . -- -p "fix the failing tests"
+# Open a shell in a running sandbox
+sandbox shell ~/projects/myapp
 
-# Open VSCode connected into to the sandbox
+# Open VSCode inside the sandbox
 sandbox code .
 
 # List running sandboxes
@@ -55,11 +73,12 @@ sandbox stop .
 # Remove a sandbox (stops it first if running)
 sandbox rm .
 # Forcibly copy files, update firewalls, and run on_sync scripts inside
-# the sandbox (Not usually necessary to call directly.)
+# the sandbox. Runs automatically on start, but can be used to update a
+# running sandbox without restarting.
 sandbox sync project/
 ```
 
-## Parent Sandbox Discovery
+### Parent Sandbox Discovery
 
 When you run a command (e.g. `sandbox claude .`), the tool walks up the directory tree looking for a `.sandbox/` directory. If it finds one in a parent, it uses that parent as the sandbox root — names the container after it, loads its config, and mounts its directory. The command itself still runs at your current directory inside the container.
 
@@ -122,9 +141,9 @@ See [specs/sandbox-config.spec.md](specs/sandbox-config.spec.md) for full detail
 
 ### Host Tools
 
-Host tools let the agent inside the sandbox trigger a limited set of pre-configured commands on the host machine. The agent can only send a tool name for now, no arguments to keep things simple.
+Host tools let the agent inside the sandbox trigger a limited set of pre-configured commands on the host machine. The agent can only send a tool name for now, no arguments to keep things simple. This lets the agent take privileged action without ever coming near credentials.
 
-When you use `sandbox claude`, the tool automatically exposes host tools as MCP tools so Claude sees them as first-class tool calls.
+When you use `sandbox claude`, the tool automatically exposes host tools as MCP tools, so Claude sees them as first-class tool calls.
 
 ```yaml
 host_tools:
