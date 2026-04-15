@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1070,5 +1071,41 @@ host_tools:
 	}
 	if !strings.Contains(err.Error(), "missing") {
 		t.Errorf("error = %v, want mention of 'missing'", err)
+	}
+}
+
+// TestHostToolJSONRoundTripPreservesCmd guards against a regression where
+// HostTool.Cmd or HostToolArg.Validate are marked json:"-", which would
+// silently strip them from the daemon's register message and produce empty
+// execs at runtime. The sandbox-facing JSON filters these fields via a
+// dedicated struct in sync.go, not via struct tags on HostTool.
+func TestHostToolJSONRoundTripPreservesCmd(t *testing.T) {
+	orig := HostTool{
+		Name:        "deploy",
+		Description: "Deploy the app",
+		Cmd:         "./deploy.sh ${env}",
+		Args: []HostToolArg{{
+			Name:     "env",
+			Validate: "grep -q staging",
+		}},
+	}
+
+	data, err := json.Marshal(orig)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var got HostTool
+	if err := json.Unmarshal(data, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if got.Cmd != orig.Cmd {
+		t.Errorf("Cmd lost in round-trip: got %q, want %q (raw JSON: %s)",
+			got.Cmd, orig.Cmd, data)
+	}
+	if len(got.Args) != 1 || got.Args[0].Validate != orig.Args[0].Validate {
+		t.Errorf("Args[0].Validate lost in round-trip: got %+v, want %q (raw JSON: %s)",
+			got.Args, orig.Args[0].Validate, data)
 	}
 }
