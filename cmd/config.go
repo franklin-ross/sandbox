@@ -28,7 +28,7 @@ type SandboxConfig struct {
 type HostTool struct {
 	Name        string        `yaml:"name" json:"name"`
 	Description string        `yaml:"description" json:"description"`
-	Cmd         string        `yaml:"cmd" json:"-"`
+	Cmd         string        `yaml:"cmd" json:"cmd,omitempty"`
 	Args        []HostToolArg `yaml:"args" json:"args,omitempty"`
 }
 
@@ -46,7 +46,7 @@ type HostToolArg struct {
 	MinLength   *int           `yaml:"min_length" json:"min_length,omitempty"`
 	MaxLength   *int           `yaml:"max_length" json:"max_length,omitempty"`
 	URL         *URLConstraint `yaml:"url" json:"url,omitempty"`
-	Validate    string         `yaml:"validate" json:"-"` // host-side only, never exposed to agent
+	Validate    string         `yaml:"validate" json:"validate,omitempty"` // host-side only; sync.go strips before writing sandbox JSON
 }
 
 // URLConstraint restricts acceptable URLs for a string arg.
