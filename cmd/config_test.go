@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/franklin-ross/sandbox/cmd/hosttool"
 )
 
 func TestParseConfigFile(t *testing.T) {
@@ -762,7 +764,7 @@ func TestBuildSyncManifest(t *testing.T) {
 		t.Setenv("ZSH_THEME", "")
 
 		cfg := &SandboxConfig{
-			HostTools: []HostTool{
+			HostTools: []hosttool.Tool{
 				{Name: "deploy", Description: "Deploy the app", Cmd: "./deploy.sh"},
 			},
 		}
@@ -916,13 +918,13 @@ func TestHostToolParsing(t *testing.T) {
 func TestMergeHostTools(t *testing.T) {
 	t.Run("override by name", func(t *testing.T) {
 		base := &SandboxConfig{
-			HostTools: []HostTool{
+			HostTools: []hosttool.Tool{
 				{Name: "deploy", Cmd: "echo base"},
 				{Name: "test", Cmd: "echo test"},
 			},
 		}
 		override := &SandboxConfig{
-			HostTools: []HostTool{
+			HostTools: []hosttool.Tool{
 				{Name: "deploy", Cmd: "echo override"},
 			},
 		}
@@ -939,13 +941,13 @@ func TestMergeHostTools(t *testing.T) {
 
 	t.Run("preserves order", func(t *testing.T) {
 		base := &SandboxConfig{
-			HostTools: []HostTool{
+			HostTools: []hosttool.Tool{
 				{Name: "a", Cmd: "echo a"},
 				{Name: "b", Cmd: "echo b"},
 			},
 		}
 		override := &SandboxConfig{
-			HostTools: []HostTool{
+			HostTools: []hosttool.Tool{
 				{Name: "c", Cmd: "echo c"},
 			},
 		}
@@ -964,7 +966,7 @@ func TestMergeHostTools(t *testing.T) {
 	t.Run("empty base", func(t *testing.T) {
 		base := &SandboxConfig{}
 		override := &SandboxConfig{
-			HostTools: []HostTool{
+			HostTools: []hosttool.Tool{
 				{Name: "deploy", Cmd: "echo deploy"},
 			},
 		}
@@ -976,7 +978,7 @@ func TestMergeHostTools(t *testing.T) {
 
 	t.Run("empty override", func(t *testing.T) {
 		base := &SandboxConfig{
-			HostTools: []HostTool{
+			HostTools: []hosttool.Tool{
 				{Name: "deploy", Cmd: "echo deploy"},
 			},
 		}
@@ -1075,16 +1077,16 @@ host_tools:
 }
 
 // TestHostToolJSONRoundTripPreservesCmd guards against a regression where
-// HostTool.Cmd or HostToolArg.Validate are marked json:"-", which would
+// hosttool.Tool.Cmd or hosttool.Arg.Validate are marked json:"-", which would
 // silently strip them from the daemon's register message and produce empty
 // execs at runtime. The sandbox-facing JSON filters these fields via a
-// dedicated struct in sync.go, not via struct tags on HostTool.
+// dedicated struct in sync.go, not via struct tags on hosttool.Tool.
 func TestHostToolJSONRoundTripPreservesCmd(t *testing.T) {
-	orig := HostTool{
+	orig := hosttool.Tool{
 		Name:        "deploy",
 		Description: "Deploy the app",
 		Cmd:         "./deploy.sh ${env}",
-		Args: []HostToolArg{{
+		Args: []hosttool.Arg{{
 			Name:     "env",
 			Validate: "grep -q staging",
 		}},
@@ -1095,7 +1097,7 @@ func TestHostToolJSONRoundTripPreservesCmd(t *testing.T) {
 		t.Fatalf("marshal: %v", err)
 	}
 
-	var got HostTool
+	var got hosttool.Tool
 	if err := json.Unmarshal(data, &got); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}

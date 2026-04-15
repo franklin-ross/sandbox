@@ -1,4 +1,4 @@
-package cmd
+package hosttool
 
 import (
 	"strings"
@@ -10,8 +10,8 @@ func ptrFloat(f float64) *float64 { return &f }
 func ptrInt(i int) *int           { return &i }
 
 func TestValidateArgs_Defaults(t *testing.T) {
-	ht := HostTool{
-		Args: []HostToolArg{
+	ht := Tool{
+		Args: []Arg{
 			{Name: "env", Default: "staging"},
 		},
 	}
@@ -25,7 +25,7 @@ func TestValidateArgs_Defaults(t *testing.T) {
 }
 
 func TestValidateArgs_RequiredMissing(t *testing.T) {
-	ht := HostTool{Args: []HostToolArg{{Name: "tag"}}}
+	ht := Tool{Args: []Arg{{Name: "tag"}}}
 	_, err := ValidateAndCoerceArgs(ht, map[string]any{})
 	if err == nil || !strings.Contains(err.Error(), "tag") {
 		t.Fatalf("want required error mentioning tag, got %v", err)
@@ -33,7 +33,7 @@ func TestValidateArgs_RequiredMissing(t *testing.T) {
 }
 
 func TestValidateArgs_OptionalMissing(t *testing.T) {
-	ht := HostTool{Args: []HostToolArg{{Name: "tag", Required: ptrBool(false)}}}
+	ht := Tool{Args: []Arg{{Name: "tag", Required: ptrBool(false)}}}
 	out, err := ValidateAndCoerceArgs(ht, map[string]any{})
 	if err != nil {
 		t.Fatalf("unexpected: %v", err)
@@ -44,7 +44,7 @@ func TestValidateArgs_OptionalMissing(t *testing.T) {
 }
 
 func TestValidateArgs_TypeCoerce(t *testing.T) {
-	ht := HostTool{Args: []HostToolArg{
+	ht := Tool{Args: []Arg{
 		{Name: "n", Type: "integer"},
 		{Name: "f", Type: "number"},
 		{Name: "b", Type: "boolean"},
@@ -61,7 +61,7 @@ func TestValidateArgs_TypeCoerce(t *testing.T) {
 }
 
 func TestValidateArgs_IntegerRejectsFloat(t *testing.T) {
-	ht := HostTool{Args: []HostToolArg{{Name: "n", Type: "integer"}}}
+	ht := Tool{Args: []Arg{{Name: "n", Type: "integer"}}}
 	_, err := ValidateAndCoerceArgs(ht, map[string]any{"n": 1.5})
 	if err == nil {
 		t.Fatal("want error for non-integer value")
@@ -69,7 +69,7 @@ func TestValidateArgs_IntegerRejectsFloat(t *testing.T) {
 }
 
 func TestValidateArgs_Enum(t *testing.T) {
-	ht := HostTool{Args: []HostToolArg{{Name: "e", Enum: []string{"a", "b"}}}}
+	ht := Tool{Args: []Arg{{Name: "e", Enum: []string{"a", "b"}}}}
 	if _, err := ValidateAndCoerceArgs(ht, map[string]any{"e": "a"}); err != nil {
 		t.Errorf("enum ok case: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestValidateArgs_Enum(t *testing.T) {
 }
 
 func TestValidateArgs_Regex(t *testing.T) {
-	ht := HostTool{Args: []HostToolArg{{Name: "v", Regex: `^v\d+$`}}}
+	ht := Tool{Args: []Arg{{Name: "v", Regex: `^v\d+$`}}}
 	if _, err := ValidateAndCoerceArgs(ht, map[string]any{"v": "v1"}); err != nil {
 		t.Errorf("regex ok: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestValidateArgs_Regex(t *testing.T) {
 }
 
 func TestValidateArgs_MinMax(t *testing.T) {
-	ht := HostTool{Args: []HostToolArg{
+	ht := Tool{Args: []Arg{
 		{Name: "n", Type: "integer", Min: ptrFloat(0), Max: ptrFloat(10)},
 	}}
 	if _, err := ValidateAndCoerceArgs(ht, map[string]any{"n": float64(5)}); err != nil {
@@ -104,7 +104,7 @@ func TestValidateArgs_MinMax(t *testing.T) {
 }
 
 func TestValidateArgs_Length(t *testing.T) {
-	ht := HostTool{Args: []HostToolArg{
+	ht := Tool{Args: []Arg{
 		{Name: "s", MinLength: ptrInt(2), MaxLength: ptrInt(4)},
 	}}
 	if _, err := ValidateAndCoerceArgs(ht, map[string]any{"s": "ab"}); err != nil {
@@ -119,7 +119,7 @@ func TestValidateArgs_Length(t *testing.T) {
 }
 
 func TestValidateArgs_UnknownArg(t *testing.T) {
-	ht := HostTool{Args: []HostToolArg{{Name: "a"}}}
+	ht := Tool{Args: []Arg{{Name: "a"}}}
 	_, err := ValidateAndCoerceArgs(ht, map[string]any{"a": "x", "b": "y"})
 	if err == nil || !strings.Contains(err.Error(), "b") {
 		t.Fatalf("want unknown-arg error for b, got %v", err)

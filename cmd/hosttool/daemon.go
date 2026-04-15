@@ -1,4 +1,4 @@
-package cmd
+package hosttool
 
 import (
 	"bufio"
@@ -19,14 +19,17 @@ import (
 	"time"
 )
 
-// hostToolPidFile returns the path to the daemon PID file.
-func hostToolPidFile() string {
+// DefaultPort is the default TCP port for the host tool daemon.
+const DefaultPort = 9847
+
+// pidFile returns the path to the daemon PID file.
+func pidFile() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".sandbox", "daemon", "daemon.pid")
 }
 
-// hostToolLogFile returns the path to the daemon log file.
-func hostToolLogFile() string {
+// logFile returns the path to the daemon log file.
+func logFile() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".sandbox", "daemon", "daemon.log")
 }
@@ -40,15 +43,15 @@ func GenerateSessionID() string {
 
 // --- Protocol types ---
 
-type hostToolMessage struct {
-	Type    string     `json:"type"`              // "register", "execute", "unregister"
-	Session string     `json:"session"`           // session ID
-	Command string     `json:"command,omitempty"` // for execute
-	Tools   []HostTool `json:"tools,omitempty"`   // for register
-	Workdir string     `json:"workdir,omitempty"` // for register
+type message struct {
+	Type    string `json:"type"`              // "register", "execute", "unregister"
+	Session string `json:"session"`           // session ID
+	Command string `json:"command,omitempty"` // for execute
+	Tools   []Tool `json:"tools,omitempty"`   // for register
+	Workdir string `json:"workdir,omitempty"` // for register
 }
 
-type hostToolResponse struct {
+type response struct {
 	OK       bool   `json:"ok"`
 	ExitCode int    `json:"exit_code"`
 	Output   string `json:"output"`
@@ -63,9 +66,9 @@ type sessionEntry struct {
 
 // --- Daemon ---
 
-// HostToolDaemon listens on a TCP port and executes pre-configured host tools
+// Daemon listens on a TCP port and executes pre-configured host tools
 // dispatched by session ID.
-type HostToolDaemon struct {
+type Daemon struct {
 	listener net.Listener
 	mu       sync.Mutex
 	sessions map[string]*sessionEntry
@@ -74,17 +77,17 @@ type HostToolDaemon struct {
 	log      *log.Logger
 }
 
-// RunHostToolDaemon creates a TCP listener and serves until the context is
+// RunDaemon creates a TCP listener and serves until the context is
 // cancelled or the last session unregisters. This blocks and is intended to
 // be the main loop of the daemon process.
-func RunHostToolDaemon(ctx context.Context, port int) error {
-	logFile := hostToolLogFile()
-	os.MkdirAll(filepath.Dir(logFile), 0755)
+func RunDaemon(ctx context.Context, port int) error {
+	lf := logFile()
+	os.MkdirAll(filepath.Dir(lf), 0755)
 	// Truncate if over 1 MB.
-	if info, err := os.Stat(logFile); err == nil && info.Size() > 1<<20 {
-		os.Truncate(logFile, 0)
+	if info, err := os.Stat(lf); err == nil && info.Size() > 1<<20 {
+		os.Truncate(lf, 0)
 	}
-	f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	f, err := os.OpenFile(lf, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		return fmt.Errorf("open log file: %w", err)
 	}
@@ -99,7 +102,7 @@ func RunHostToolDaemon(ctx context.Context, port int) error {
 	logger.Printf("daemon started on %s (pid %d)", addr, os.Getpid())
 
 	ctx, cancel := context.WithCancel(ctx)
-	d := &HostToolDaemon{
+	d := &Daemon{
 		listener: listener,
 		sessions: make(map[string]*sessionEntry),
 		cancel:   cancel,
@@ -108,18 +111,18 @@ func RunHostToolDaemon(ctx context.Context, port int) error {
 	}
 
 	// Write PID file with binary mtime so clients can detect stale daemons.
-	pidFile := hostToolPidFile()
-	os.MkdirAll(filepath.Dir(pidFile), 0755)
+	pf := pidFile()
+	os.MkdirAll(filepath.Dir(pf), 0755)
 	pidData := fmt.Sprintf("%d\n%s", os.Getpid(), binaryMtime())
-	os.WriteFile(pidFile, []byte(pidData), 0644)
-	defer os.Remove(pidFile)
+	os.WriteFile(pf, []byte(pidData), 0644)
+	defer os.Remove(pf)
 
 	d.serve(ctx)
 	logger.Println("daemon stopped")
 	return nil
 }
 
-func (d *HostToolDaemon) serve(ctx context.Context) {
+func (d *Daemon) serve(ctx context.Context) {
 	defer close(d.done)
 	for {
 		conn, err := d.listener.Accept()
@@ -135,7 +138,7 @@ func (d *HostToolDaemon) serve(ctx context.Context) {
 	}
 }
 
-func (d *HostToolDaemon) handleConn(ctx context.Context, conn net.Conn) {
+func (d *Daemon) handleConn(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
 
 	scanner := bufio.NewScanner(conn)
@@ -145,10 +148,10 @@ func (d *HostToolDaemon) handleConn(ctx context.Context, conn net.Conn) {
 		return
 	}
 
-	var msg hostToolMessage
+	var msg message
 	if err := json.Unmarshal(scanner.Bytes(), &msg); err != nil {
 		d.log.Printf("invalid request from %s: %v", conn.RemoteAddr(), err)
-		json.NewEncoder(conn).Encode(hostToolResponse{ExitCode: 1, Output: "invalid request: " + err.Error()})
+		json.NewEncoder(conn).Encode(response{ExitCode: 1, Output: "invalid request: " + err.Error()})
 		return
 	}
 
@@ -161,11 +164,11 @@ func (d *HostToolDaemon) handleConn(ctx context.Context, conn net.Conn) {
 		d.handleUnregister(conn, msg)
 	default:
 		d.log.Printf("unknown message type %q from %s", msg.Type, conn.RemoteAddr())
-		json.NewEncoder(conn).Encode(hostToolResponse{ExitCode: 1, Output: "unknown message type: " + msg.Type})
+		json.NewEncoder(conn).Encode(response{ExitCode: 1, Output: "unknown message type: " + msg.Type})
 	}
 }
 
-func (d *HostToolDaemon) handleRegister(conn net.Conn, msg hostToolMessage) {
+func (d *Daemon) handleRegister(conn net.Conn, msg message) {
 	cmds := make(map[string]string, len(msg.Tools))
 	for _, ht := range msg.Tools {
 		cmds[ht.Name] = ht.Cmd
@@ -183,10 +186,10 @@ func (d *HostToolDaemon) handleRegister(conn net.Conn, msg hostToolMessage) {
 	d.log.Printf("registered session %s with %d tools (%s), workdir=%s",
 		msg.Session, len(cmds), strings.Join(names, ", "), msg.Workdir)
 
-	json.NewEncoder(conn).Encode(hostToolResponse{OK: true})
+	json.NewEncoder(conn).Encode(response{OK: true})
 }
 
-func (d *HostToolDaemon) handleUnregister(conn net.Conn, msg hostToolMessage) {
+func (d *Daemon) handleUnregister(conn net.Conn, msg message) {
 	d.mu.Lock()
 	delete(d.sessions, msg.Session)
 	remaining := len(d.sessions)
@@ -194,7 +197,7 @@ func (d *HostToolDaemon) handleUnregister(conn net.Conn, msg hostToolMessage) {
 
 	d.log.Printf("unregistered session %s (%d remaining)", msg.Session, remaining)
 
-	json.NewEncoder(conn).Encode(hostToolResponse{OK: true})
+	json.NewEncoder(conn).Encode(response{OK: true})
 
 	if remaining == 0 {
 		// Last session gone — shut down after a grace period so a quick
@@ -213,14 +216,14 @@ func (d *HostToolDaemon) handleUnregister(conn net.Conn, msg hostToolMessage) {
 	}
 }
 
-func (d *HostToolDaemon) handleExecute(ctx context.Context, conn net.Conn, msg hostToolMessage) {
+func (d *Daemon) handleExecute(ctx context.Context, conn net.Conn, msg message) {
 	d.mu.Lock()
 	sess, ok := d.sessions[msg.Session]
 	d.mu.Unlock()
 
 	if !ok {
 		d.log.Printf("execute %q: unknown session %q", msg.Command, msg.Session)
-		json.NewEncoder(conn).Encode(hostToolResponse{
+		json.NewEncoder(conn).Encode(response{
 			ExitCode: 1,
 			Output:   fmt.Sprintf("unknown session %q", msg.Session),
 		})
@@ -235,7 +238,7 @@ func (d *HostToolDaemon) handleExecute(ctx context.Context, conn net.Conn, msg h
 		}
 		sort.Strings(names)
 		d.log.Printf("execute %q: unknown command (session %s has: %s)", msg.Command, msg.Session, strings.Join(names, ", "))
-		json.NewEncoder(conn).Encode(hostToolResponse{
+		json.NewEncoder(conn).Encode(response{
 			ExitCode: 1,
 			Output:   fmt.Sprintf("unknown command %q; available: %s", msg.Command, strings.Join(names, ", ")),
 		})
@@ -262,7 +265,7 @@ func (d *HostToolDaemon) handleExecute(ctx context.Context, conn net.Conn, msg h
 	}
 
 	d.log.Printf("execute %q (session %s): exit %d (%d bytes output)", msg.Command, msg.Session, exitCode, len(output))
-	json.NewEncoder(conn).Encode(hostToolResponse{ExitCode: exitCode, Output: string(output)})
+	json.NewEncoder(conn).Encode(response{ExitCode: exitCode, Output: string(output)})
 }
 
 // --- Client helpers (used by sandbox claude / sandbox shell) ---
@@ -280,10 +283,10 @@ func binaryMtime() string {
 	return info.ModTime().UTC().Format(time.RFC3339Nano)
 }
 
-// EnsureHostToolDaemon checks if the daemon is running on the given port. If
+// EnsureDaemon checks if the daemon is running on the given port. If
 // the daemon was started by a different version of the binary, it kills the
 // old one and starts a fresh daemon. Returns nil on success.
-func EnsureHostToolDaemon(port int) error {
+func EnsureDaemon(port int) error {
 	// Check for stale daemon from a previous binary version.
 	if needsRestart() {
 		killStaleDaemon()
@@ -330,7 +333,7 @@ func EnsureHostToolDaemon(port int) error {
 // needsRestart returns true if the PID file exists but was written by a
 // different version of the binary (detected via mtime).
 func needsRestart() bool {
-	data, err := os.ReadFile(hostToolPidFile())
+	data, err := os.ReadFile(pidFile())
 	if err != nil {
 		return false
 	}
@@ -343,7 +346,7 @@ func needsRestart() bool {
 
 // killStaleDaemon reads the PID file and kills the old daemon process.
 func killStaleDaemon() {
-	data, err := os.ReadFile(hostToolPidFile())
+	data, err := os.ReadFile(pidFile())
 	if err != nil {
 		return
 	}
@@ -360,12 +363,12 @@ func killStaleDaemon() {
 	// Give it a moment to clean up, then force-kill.
 	time.Sleep(200 * time.Millisecond)
 	proc.Kill()
-	os.Remove(hostToolPidFile())
+	os.Remove(pidFile())
 }
 
-// RegisterHostToolSession registers a session's tools with the running daemon.
-func RegisterHostToolSession(port int, sessionID string, tools []HostTool, workdir string) error {
-	return sendHostToolMessage(port, hostToolMessage{
+// RegisterSession registers a session's tools with the running daemon.
+func RegisterSession(port int, sessionID string, tools []Tool, workdir string) error {
+	return sendMessage(port, message{
 		Type:    "register",
 		Session: sessionID,
 		Tools:   tools,
@@ -373,16 +376,16 @@ func RegisterHostToolSession(port int, sessionID string, tools []HostTool, workd
 	})
 }
 
-// UnregisterHostToolSession removes a session from the daemon.
-func UnregisterHostToolSession(port int, sessionID string) {
+// UnregisterSession removes a session from the daemon.
+func UnregisterSession(port int, sessionID string) {
 	// Best-effort; daemon may already be gone.
-	sendHostToolMessage(port, hostToolMessage{
+	sendMessage(port, message{
 		Type:    "unregister",
 		Session: sessionID,
 	})
 }
 
-func sendHostToolMessage(port int, msg hostToolMessage) error {
+func sendMessage(port int, msg message) error {
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
 	if err != nil {
@@ -400,7 +403,7 @@ func sendHostToolMessage(port int, msg hostToolMessage) error {
 	if !scanner.Scan() {
 		return fmt.Errorf("no response from host tool daemon")
 	}
-	var resp hostToolResponse
+	var resp response
 	if err := json.Unmarshal(scanner.Bytes(), &resp); err != nil {
 		return fmt.Errorf("invalid response from host tool daemon: %w", err)
 	}

@@ -7,6 +7,7 @@ import (
 	"syscall"
 
 	cmd "github.com/franklin-ross/sandbox/cmd"
+	"github.com/franklin-ross/sandbox/cmd/hosttool"
 	"github.com/spf13/cobra"
 )
 
@@ -19,11 +20,11 @@ var hostToolDaemonCmd = &cobra.Command{
 	RunE: func(_ *cobra.Command, _ []string) error {
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
-		return cmd.RunHostToolDaemon(ctx, hostToolDaemonPort)
+		return hosttool.RunDaemon(ctx, hostToolDaemonPort)
 	},
 }
 
 func init() {
-	hostToolDaemonCmd.Flags().IntVar(&hostToolDaemonPort, "port", cmd.DefaultHostToolPort, "TCP port to listen on")
+	hostToolDaemonCmd.Flags().IntVar(&hostToolDaemonPort, "port", hosttool.DefaultPort, "TCP port to listen on")
 	cmd.RootCmd.AddCommand(hostToolDaemonCmd)
 }

@@ -1,4 +1,4 @@
-package cmd
+package hosttool
 
 import (
 	"fmt"
@@ -7,12 +7,12 @@ import (
 	"strconv"
 )
 
-// ValidateAndCoerceArgs validates an input arg map against a HostTool's arg
+// ValidateAndCoerceArgs validates an input arg map against a Tool's arg
 // schema and returns a map of string values ready for shell substitution.
 // It applies defaults, coerces types, and enforces enum/regex/min/max/length
 // constraints. URL and validate-cmd checks are applied by the caller after
 // this function succeeds.
-func ValidateAndCoerceArgs(ht HostTool, input map[string]any) (map[string]string, error) {
+func ValidateAndCoerceArgs(ht Tool, input map[string]any) (map[string]string, error) {
 	declared := make(map[string]bool, len(ht.Args))
 	for _, a := range ht.Args {
 		declared[a.Name] = true
@@ -50,14 +50,14 @@ func ValidateAndCoerceArgs(ht HostTool, input map[string]any) (map[string]string
 	return out, nil
 }
 
-func isRequired(a HostToolArg) bool {
+func isRequired(a Arg) bool {
 	if a.Required == nil {
 		return true
 	}
 	return *a.Required
 }
 
-func coerceArg(a HostToolArg, raw any) (string, error) {
+func coerceArg(a Arg, raw any) (string, error) {
 	t := a.Type
 	if t == "" {
 		t = "string"
@@ -111,7 +111,7 @@ func toFloat(v any) (float64, bool) {
 	return 0, false
 }
 
-func checkConstraints(a HostToolArg, str string, raw any) error {
+func checkConstraints(a Arg, str string, raw any) error {
 	if len(a.Enum) > 0 {
 		ok := false
 		for _, e := range a.Enum {

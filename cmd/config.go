@@ -4,15 +4,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"sort"
 	"strings"
 
+	"github.com/franklin-ross/sandbox/cmd/hosttool"
 	"gopkg.in/yaml.v3"
 )
 
 // DefaultHostToolPort is the default TCP port for the host tool daemon.
-const DefaultHostToolPort = 9847
+// Kept here as a cmd-level alias so existing callers (commands/daemon.go) compile.
+const DefaultHostToolPort = hosttool.DefaultPort
 
 // SandboxConfig holds the user-editable sandbox configuration.
 type SandboxConfig struct {
@@ -20,41 +21,8 @@ type SandboxConfig struct {
 	Env          map[string]string `yaml:"env"`
 	Firewall     FirewallConfig    `yaml:"firewall"`
 	OnSync       []OnSyncHook      `yaml:"on_sync"`
-	HostTools    []HostTool        `yaml:"host_tools"`
+	HostTools    []hosttool.Tool   `yaml:"host_tools"`
 	HostToolPort int               `yaml:"host_tool_port"`
-}
-
-// HostTool describes a command the agent can trigger on the host.
-type HostTool struct {
-	Name        string        `yaml:"name" json:"name"`
-	Description string        `yaml:"description" json:"description"`
-	Cmd         string        `yaml:"cmd" json:"cmd,omitempty"`
-	Args        []HostToolArg `yaml:"args" json:"args,omitempty"`
-}
-
-// HostToolArg describes a single parameter an agent may pass to a host tool.
-type HostToolArg struct {
-	Name        string         `yaml:"name" json:"name"`
-	Description string         `yaml:"description" json:"description,omitempty"`
-	Type        string         `yaml:"type" json:"type,omitempty"`         // string|integer|number|boolean
-	Required    *bool          `yaml:"required" json:"required,omitempty"` // default true
-	Default     any            `yaml:"default" json:"default,omitempty"`
-	Enum        []string       `yaml:"enum" json:"enum,omitempty"`
-	Regex       string         `yaml:"regex" json:"regex,omitempty"`
-	Min         *float64       `yaml:"min" json:"min,omitempty"`
-	Max         *float64       `yaml:"max" json:"max,omitempty"`
-	MinLength   *int           `yaml:"min_length" json:"min_length,omitempty"`
-	MaxLength   *int           `yaml:"max_length" json:"max_length,omitempty"`
-	URL         *URLConstraint `yaml:"url" json:"url,omitempty"`
-	Validate    string         `yaml:"validate" json:"validate,omitempty"` // host-side only; sync.go strips before writing sandbox JSON
-}
-
-// URLConstraint restricts acceptable URLs for a string arg.
-type URLConstraint struct {
-	Schemes         []string `yaml:"schemes" json:"schemes,omitempty"`
-	Hosts           []string `yaml:"hosts" json:"hosts,omitempty"`
-	PathPrefix      string   `yaml:"path_prefix" json:"path_prefix,omitempty"`
-	BlockPrivateIPs *bool    `yaml:"block_private_ips" json:"block_private_ips,omitempty"` // default true
 }
 
 // OnSyncHook describes a command to run inside the container after sync.
@@ -202,7 +170,7 @@ func parseConfigFile(path string) (*SandboxConfig, error) {
 
 	// Validate host_tools
 	seenTools := make(map[string]bool)
-	var validTools []HostTool
+	var validTools []hosttool.Tool
 	for _, ht := range cfg.HostTools {
 		if strings.TrimSpace(ht.Name) == "" {
 			fmt.Fprintf(os.Stderr, "warning: host_tool with empty name, skipping\n")
@@ -217,7 +185,7 @@ func parseConfigFile(path string) (*SandboxConfig, error) {
 			continue
 		}
 		seenTools[ht.Name] = true
-		if err := validateHostToolPlaceholders(ht); err != nil {
+		if err := hosttool.ValidatePlaceholders(ht); err != nil {
 			return nil, fmt.Errorf("host_tool %q: %w", ht.Name, err)
 		}
 		validTools = append(validTools, ht)
@@ -236,36 +204,6 @@ func parseConfigFile(path string) (*SandboxConfig, error) {
 	cfg.OnSync = validHooks
 
 	return &cfg, nil
-}
-
-// placeholderRE matches ${name} where name is [A-Za-z_][A-Za-z0-9_]*.
-var placeholderRE = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
-
-func validateHostToolPlaceholders(ht HostTool) error {
-	declared := make(map[string]bool, len(ht.Args))
-	for _, a := range ht.Args {
-		if strings.TrimSpace(a.Name) == "" {
-			return fmt.Errorf("arg with empty name")
-		}
-		if declared[a.Name] {
-			return fmt.Errorf("duplicate arg %q", a.Name)
-		}
-		declared[a.Name] = true
-	}
-	used := make(map[string]bool)
-	for _, m := range placeholderRE.FindAllStringSubmatch(ht.Cmd, -1) {
-		name := m[1]
-		if !declared[name] {
-			return fmt.Errorf("cmd references undeclared arg ${%s}", name)
-		}
-		used[name] = true
-	}
-	for name := range declared {
-		if !used[name] {
-			fmt.Fprintf(os.Stderr, "warning: host_tool %q: arg %q declared but not used in cmd\n", ht.Name, name)
-		}
-	}
-	return nil
 }
 
 func validateFirewallEntry(e FirewallEntry) bool {
@@ -353,7 +291,7 @@ func mergeConfig(base, override *SandboxConfig) *SandboxConfig {
 	result.OnSync = append(result.OnSync, override.OnSync...)
 
 	// HostTools: override replaces base by name (like sync by dest)
-	toolMap := make(map[string]HostTool)
+	toolMap := make(map[string]hosttool.Tool)
 	var toolOrder []string
 	for _, ht := range base.HostTools {
 		if _, exists := toolMap[ht.Name]; !exists {
@@ -385,7 +323,7 @@ func (c *SandboxConfig) EffectiveHostToolPort() int {
 	if c.HostToolPort != 0 {
 		return c.HostToolPort
 	}
-	return DefaultHostToolPort
+	return hosttool.DefaultPort
 }
 
 func generateEnvFile(env map[string]string) []byte {
