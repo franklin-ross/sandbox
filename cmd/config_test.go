@@ -1045,3 +1045,30 @@ func TestMergeHostToolPort(t *testing.T) {
 		}
 	})
 }
+
+func TestConfigPlaceholderRejectsUnknownArg(t *testing.T) {
+	dir := t.TempDir()
+	cfgDir := filepath.Join(dir, ".sandbox")
+	if err := os.MkdirAll(cfgDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.yaml"), []byte(`
+host_tools:
+  - name: bad
+    cmd: ./x ${missing}
+    args:
+      - name: present
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Isolate HOME so global config doesn't interfere.
+	t.Setenv("HOME", dir)
+	_, err := LoadConfig(dir)
+	if err == nil {
+		t.Fatal("expected error for undeclared ${missing} placeholder")
+	}
+	if !strings.Contains(err.Error(), "missing") {
+		t.Errorf("error = %v, want mention of 'missing'", err)
+	}
+}
