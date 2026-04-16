@@ -136,11 +136,31 @@ firewall:
 
 # host_tools:
 #   - name: deploy
-#     description: Deploy the app to staging
-#     cmd: ./deploy.sh
-#   - name: restart-db
-#     description: Restart the PostgreSQL database
-#     cmd: systemctl restart postgres
+#     description: Deploy the app to a target environment
+#     cmd: ./deploy.sh ${env} ${tag}
+#     args:
+#       - name: env
+#         description: Target environment
+#         enum: [staging, prod]
+#       - name: tag
+#         description: Git tag to deploy
+#         regex: '^v\d+\.\d+\.\d+$'
+#   - name: fetch-build
+#     description: Download a build artifact
+#     cmd: curl -fsSL ${url} -o build.tar.gz
+#     args:
+#       - name: url
+#         url:
+#           schemes: [https]
+#           hosts: [github.com, objects.githubusercontent.com]
+#   - name: scale
+#     description: Scale the api deployment
+#     cmd: kubectl scale --replicas=${n} deploy/api
+#     args:
+#       - name: n
+#         type: integer
+#         min: 0
+#         max: 20
 # host_tool_port: 9847
 `
 
