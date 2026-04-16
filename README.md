@@ -141,22 +141,63 @@ See [specs/sandbox-config.spec.md](specs/sandbox-config.spec.md) for full detail
 
 ### Host Tools
 
-Host tools let the agent inside the sandbox trigger a limited set of pre-configured commands on the host machine. The agent can only send a tool name for now, no arguments to keep things simple. This lets the agent take privileged action without ever coming near credentials.
+Host tools let the agent inside the sandbox trigger a limited set of pre-configured commands on the host machine. Tools can accept typed, validated arguments that are shell-quoted before substitution, so the agent can take privileged action without ever coming near credentials or injecting shell metacharacters.
 
-When you use `sandbox claude`, the tool automatically exposes host tools as MCP tools, so Claude sees them as first-class tool calls.
+When you use `sandbox claude`, the tool automatically exposes host tools as MCP tools, so Claude sees them as first-class tool calls with full input schemas.
 
 ```yaml
 host_tools:
     - name: deploy
-      description: Deploy the app to staging
-      cmd: ./deploy.sh
-    - name: restart-db
-      description: Restart the PostgreSQL database
-      cmd: systemctl restart postgres
+      description: Deploy the app to a target environment
+      cmd: ./deploy.sh ${env} ${tag}
+      args:
+          - name: env
+            description: Target environment
+            enum: [staging, prod]
+          - name: tag
+            description: Git tag to deploy
+            regex: '^v\d+\.\d+\.\d+$'
+    - name: scale
+      description: Scale the api deployment
+      cmd: kubectl scale --replicas=${n} deploy/api
+      args:
+          - name: n
+            type: integer
+            min: 0
+            max: 20
 
 # Optional: override the default daemon port (9847)
 # host_tool_port: 9848
 ```
+
+#### Arg Fields
+
+| Field | Description |
+|---|---|
+| `name` | Arg name (required). Referenced in `cmd` as `${name}`. |
+| `description` | Human-readable description for the MCP input schema. |
+| `type` | `string` (default), `integer`, `number`, or `boolean`. |
+| `required` | Defaults to `true`. Set `false` for optional args. |
+| `default` | Default value when the arg is not provided. |
+| `enum` | Restrict to a set of allowed values. |
+| `regex` | Value must match this regular expression. |
+| `min` / `max` | Numeric range bounds (for `integer` and `number` types). |
+| `min_length` / `max_length` | String length bounds. |
+| `url` | URL constraint object (see below). |
+| `validate` | Shell command run on the host to validate the value. Receives the value on stdin; non-zero exit rejects. |
+
+#### URL Constraints
+
+The `url` field enables URL-specific validation with SSRF protection:
+
+| Field | Description |
+|---|---|
+| `schemes` | Allowed URL schemes. Defaults to `["https"]`. |
+| `hosts` | Host allowlist with glob support (e.g. `*.github.io`). |
+| `path_prefix` | URL path must start with this prefix. |
+| `block_private_ips` | Defaults to `true`. Blocks private, loopback, link-local, and metadata IPs after DNS resolution. |
+
+All arg values are shell-quoted before substitution into `cmd`, preventing injection.
 
 A background daemon on the host manages command execution. It starts automatically on the first `sandbox shell` or `sandbox claude` session and shuts down when the last session ends. Each session registers its workspace's tools, so different workspaces can define different tools under the same name.
 

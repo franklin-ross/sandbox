@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/franklin-ross/sandbox/cmd/hosttool"
 )
 
 const testImageName = "sandbox-test"
@@ -407,9 +409,16 @@ func TestContainerLabels(t *testing.T) {
 	}
 }
 
+// daemonToolResponse mirrors the wire response shape for integration tests.
+type daemonToolResponse struct {
+	OK       bool   `json:"ok"`
+	ExitCode int    `json:"exit_code"`
+	Output   string `json:"output"`
+}
+
 // startHostToolDaemon starts a daemon on a random port, registers a session
 // with the given tools, and returns the session ID and port.
-func startHostToolDaemon(t *testing.T, tools []HostTool) (sessionID string, port int) {
+func startHostToolDaemon(t *testing.T, tools []hosttool.Tool) (sessionID string, port int) {
 	t.Helper()
 
 	wsPath := t.TempDir()
@@ -422,7 +431,7 @@ func startHostToolDaemon(t *testing.T, tools []HostTool) (sessionID string, port
 	l.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	go RunHostToolDaemon(ctx, port)
+	go hosttool.RunDaemon(ctx, port)
 	t.Cleanup(cancel)
 
 	// Wait for daemon to be ready.
@@ -435,40 +444,40 @@ func startHostToolDaemon(t *testing.T, tools []HostTool) (sessionID string, port
 		time.Sleep(25 * time.Millisecond)
 	}
 
-	sessionID = GenerateSessionID()
-	if err := RegisterHostToolSession(port, sessionID, tools, wsPath); err != nil {
+	sessionID = hosttool.GenerateSessionID()
+	if err := hosttool.RegisterSession(port, sessionID, tools, wsPath); err != nil {
 		t.Fatalf("register session: %v", err)
 	}
-	t.Cleanup(func() { UnregisterHostToolSession(port, sessionID) })
+	t.Cleanup(func() { hosttool.UnregisterSession(port, sessionID) })
 
 	return sessionID, port
 }
 
 // execDaemonTool sends an execute request to the daemon and returns the response.
-func execDaemonTool(port int, sessionID, toolName string) (hostToolResponse, error) {
+func execDaemonTool(port int, sessionID, toolName string) (daemonToolResponse, error) {
 	addr := fmt.Sprintf("127.0.0.1:%d", port)
 	conn, err := net.DialTimeout("tcp", addr, 2*time.Second)
 	if err != nil {
-		return hostToolResponse{}, err
+		return daemonToolResponse{}, err
 	}
 	defer conn.Close()
 
-	msg := hostToolMessage{Type: "execute", Session: sessionID, Command: toolName}
+	msg := map[string]any{"type": "execute", "session": sessionID, "command": toolName}
 	data, _ := json.Marshal(msg)
 	data = append(data, '\n')
 	conn.Write(data)
 
 	scanner := bufio.NewScanner(conn)
 	if !scanner.Scan() {
-		return hostToolResponse{}, fmt.Errorf("no response")
+		return daemonToolResponse{}, fmt.Errorf("no response")
 	}
-	var resp hostToolResponse
+	var resp daemonToolResponse
 	json.Unmarshal(scanner.Bytes(), &resp)
 	return resp, nil
 }
 
 func TestHosttoolEndToEnd(t *testing.T) {
-	tools := []HostTool{
+	tools := []hosttool.Tool{
 		{Name: "greet", Cmd: "echo hello-from-host"},
 	}
 	sessionID, port := startHostToolDaemon(t, tools)
@@ -486,7 +495,7 @@ func TestHosttoolEndToEnd(t *testing.T) {
 }
 
 func TestHosttoolUnknownCommand(t *testing.T) {
-	tools := []HostTool{
+	tools := []hosttool.Tool{
 		{Name: "deploy", Cmd: "echo deploy"},
 	}
 	sessionID, port := startHostToolDaemon(t, tools)
@@ -504,7 +513,7 @@ func TestHosttoolUnknownCommand(t *testing.T) {
 }
 
 func TestHosttoolConcurrent(t *testing.T) {
-	tools := []HostTool{
+	tools := []hosttool.Tool{
 		{Name: "echo-a", Cmd: "echo aaa"},
 		{Name: "echo-b", Cmd: "echo bbb"},
 		{Name: "echo-c", Cmd: "echo ccc"},

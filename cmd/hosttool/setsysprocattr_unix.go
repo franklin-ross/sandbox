@@ -1,6 +1,6 @@
 //go:build !windows
 
-package cmd
+package hosttool
 
 import (
 	"os/exec"

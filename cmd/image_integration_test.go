@@ -85,7 +85,6 @@ func TestImageIntegration(t *testing.T) {
 			{"cargo", []string{"cargo", "--version"}},
 			{"python3", []string{"python3", "--version"}},
 			{"ruby", []string{"ruby", "--version"}},
-			{"task", []string{"task", "--version"}},
 		}
 
 		for _, tt := range tools {

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	cmd "github.com/franklin-ross/sandbox/cmd"
+	"github.com/franklin-ross/sandbox/cmd/hosttool"
 	"github.com/spf13/cobra"
 )
 
@@ -42,14 +43,14 @@ Examples:
 		var extraEnv map[string]string
 		if len(cfg.HostTools) > 0 {
 			port := cfg.EffectiveHostToolPort()
-			if err := cmd.EnsureHostToolDaemon(port); err != nil {
+			if err := hosttool.EnsureDaemon(port); err != nil {
 				return fmt.Errorf("host tool daemon: %w", err)
 			}
-			sessionID := cmd.GenerateSessionID()
-			if err := cmd.RegisterHostToolSession(port, sessionID, cfg.HostTools, sandboxRoot); err != nil {
+			sessionID := hosttool.GenerateSessionID()
+			if err := hosttool.RegisterSession(port, sessionID, cfg.HostTools, workDir); err != nil {
 				return fmt.Errorf("register host tool session: %w", err)
 			}
-			defer cmd.UnregisterHostToolSession(port, sessionID)
+			defer hosttool.UnregisterSession(port, sessionID)
 
 			extraEnv = map[string]string{
 				"SANDBOX_SESSION":       sessionID,

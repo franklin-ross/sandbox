@@ -7,11 +7,13 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/franklin-ross/sandbox/cmd/hosttool"
 	"gopkg.in/yaml.v3"
 )
 
 // DefaultHostToolPort is the default TCP port for the host tool daemon.
-const DefaultHostToolPort = 9847
+// Kept here as a cmd-level alias so existing callers (commands/daemon.go) compile.
+const DefaultHostToolPort = hosttool.DefaultPort
 
 // SandboxConfig holds the user-editable sandbox configuration.
 type SandboxConfig struct {
@@ -19,15 +21,8 @@ type SandboxConfig struct {
 	Env          map[string]string `yaml:"env"`
 	Firewall     FirewallConfig    `yaml:"firewall"`
 	OnSync       []OnSyncHook      `yaml:"on_sync"`
-	HostTools    []HostTool        `yaml:"host_tools"`
+	HostTools    []hosttool.Tool   `yaml:"host_tools"`
 	HostToolPort int               `yaml:"host_tool_port"`
-}
-
-// HostTool describes a command the agent can trigger on the host.
-type HostTool struct {
-	Name        string `yaml:"name"`
-	Description string `yaml:"description"`
-	Cmd         string `yaml:"cmd"`
 }
 
 // OnSyncHook describes a command to run inside the container after sync.
@@ -141,11 +136,31 @@ firewall:
 
 # host_tools:
 #   - name: deploy
-#     description: Deploy the app to staging
-#     cmd: ./deploy.sh
-#   - name: restart-db
-#     description: Restart the PostgreSQL database
-#     cmd: systemctl restart postgres
+#     description: Deploy the app to a target environment
+#     cmd: ./deploy.sh ${env} ${tag}
+#     args:
+#       - name: env
+#         description: Target environment
+#         enum: [staging, prod]
+#       - name: tag
+#         description: Git tag to deploy
+#         regex: '^v\d+\.\d+\.\d+$'
+#   - name: fetch-build
+#     description: Download a build artifact
+#     cmd: curl -fsSL ${url} -o build.tar.gz
+#     args:
+#       - name: url
+#         url:
+#           schemes: [https]
+#           hosts: [github.com, objects.githubusercontent.com]
+#   - name: scale
+#     description: Scale the api deployment
+#     cmd: kubectl scale --replicas=${n} deploy/api
+#     args:
+#       - name: n
+#         type: integer
+#         min: 0
+#         max: 20
 # host_tool_port: 9847
 `
 
@@ -175,7 +190,7 @@ func parseConfigFile(path string) (*SandboxConfig, error) {
 
 	// Validate host_tools
 	seenTools := make(map[string]bool)
-	var validTools []HostTool
+	var validTools []hosttool.Tool
 	for _, ht := range cfg.HostTools {
 		if strings.TrimSpace(ht.Name) == "" {
 			fmt.Fprintf(os.Stderr, "warning: host_tool with empty name, skipping\n")
@@ -190,6 +205,9 @@ func parseConfigFile(path string) (*SandboxConfig, error) {
 			continue
 		}
 		seenTools[ht.Name] = true
+		if err := hosttool.ValidatePlaceholders(ht); err != nil {
+			return nil, fmt.Errorf("host_tool %q: %w", ht.Name, err)
+		}
 		validTools = append(validTools, ht)
 	}
 	cfg.HostTools = validTools
@@ -293,7 +311,7 @@ func mergeConfig(base, override *SandboxConfig) *SandboxConfig {
 	result.OnSync = append(result.OnSync, override.OnSync...)
 
 	// HostTools: override replaces base by name (like sync by dest)
-	toolMap := make(map[string]HostTool)
+	toolMap := make(map[string]hosttool.Tool)
 	var toolOrder []string
 	for _, ht := range base.HostTools {
 		if _, exists := toolMap[ht.Name]; !exists {
@@ -325,7 +343,7 @@ func (c *SandboxConfig) EffectiveHostToolPort() int {
 	if c.HostToolPort != 0 {
 		return c.HostToolPort
 	}
-	return DefaultHostToolPort
+	return hosttool.DefaultPort
 }
 
 func generateEnvFile(env map[string]string) []byte {
