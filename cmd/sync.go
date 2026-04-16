@@ -10,6 +10,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/franklin-ross/sandbox/cmd/hosttool"
 )
 
 //go:embed image/init-firewall.sh
@@ -137,14 +139,47 @@ func buildSyncManifest(cfg *SandboxConfig) ([]SyncItem, error) {
 
 	// 5. Host tool files (only when host_tools are configured)
 	if len(cfg.HostTools) > 0 {
-		// 5a. Tool definitions JSON for the MCP server
+		// 5a. Tool definitions JSON for the MCP server. Cmd and Validate
+		// stay host-side and must not leak to the sandbox.
+		type argDef struct {
+			Name        string                  `json:"name"`
+			Description string                  `json:"description,omitempty"`
+			Type        string                  `json:"type,omitempty"`
+			Required    *bool                   `json:"required,omitempty"`
+			Default     any                     `json:"default,omitempty"`
+			Enum        []string                `json:"enum,omitempty"`
+			Regex       string                  `json:"regex,omitempty"`
+			Min         *float64                `json:"min,omitempty"`
+			Max         *float64                `json:"max,omitempty"`
+			MinLength   *int                    `json:"min_length,omitempty"`
+			MaxLength   *int                    `json:"max_length,omitempty"`
+			URL         *hosttool.URLConstraint `json:"url,omitempty"`
+		}
 		type toolDef struct {
-			Name        string `json:"name"`
-			Description string `json:"description"`
+			Name        string   `json:"name"`
+			Description string   `json:"description"`
+			Args        []argDef `json:"args,omitempty"`
 		}
 		defs := make([]toolDef, len(cfg.HostTools))
 		for i, ht := range cfg.HostTools {
-			defs[i] = toolDef{Name: ht.Name, Description: ht.Description}
+			td := toolDef{Name: ht.Name, Description: ht.Description}
+			for _, a := range ht.Args {
+				td.Args = append(td.Args, argDef{
+					Name:        a.Name,
+					Description: a.Description,
+					Type:        a.Type,
+					Required:    a.Required,
+					Default:     a.Default,
+					Enum:        a.Enum,
+					Regex:       a.Regex,
+					Min:         a.Min,
+					Max:         a.Max,
+					MinLength:   a.MinLength,
+					MaxLength:   a.MaxLength,
+					URL:         a.URL,
+				})
+			}
+			defs[i] = td
 		}
 		toolsJSON, _ := json.Marshal(defs)
 		items = append(items, SyncItem{
