@@ -44,11 +44,12 @@ func GenerateSessionID() string {
 // --- Protocol types ---
 
 type message struct {
-	Type    string `json:"type"`              // "register", "execute", "unregister"
-	Session string `json:"session"`           // session ID
-	Command string `json:"command,omitempty"` // for execute
-	Tools   []Tool `json:"tools,omitempty"`   // for register
-	Workdir string `json:"workdir,omitempty"` // for register
+	Type    string         `json:"type"`              // "register", "execute", "unregister"
+	Session string         `json:"session"`           // session ID
+	Command string         `json:"command,omitempty"` // for execute
+	Args    map[string]any `json:"args,omitempty"`    // for execute
+	Tools   []Tool         `json:"tools,omitempty"`   // for register
+	Workdir string         `json:"workdir,omitempty"` // for register
 }
 
 type response struct {
@@ -60,8 +61,8 @@ type response struct {
 // --- Session registry ---
 
 type sessionEntry struct {
-	commands map[string]string // name → cmd
-	workdir  string
+	tools   map[string]Tool // name → tool
+	workdir string
 }
 
 // --- Daemon ---
@@ -169,22 +170,22 @@ func (d *Daemon) handleConn(ctx context.Context, conn net.Conn) {
 }
 
 func (d *Daemon) handleRegister(conn net.Conn, msg message) {
-	cmds := make(map[string]string, len(msg.Tools))
+	tools := make(map[string]Tool, len(msg.Tools))
 	for _, ht := range msg.Tools {
-		cmds[ht.Name] = ht.Cmd
+		tools[ht.Name] = ht
 	}
 
 	d.mu.Lock()
-	d.sessions[msg.Session] = &sessionEntry{commands: cmds, workdir: msg.Workdir}
+	d.sessions[msg.Session] = &sessionEntry{tools: tools, workdir: msg.Workdir}
 	d.mu.Unlock()
 
-	names := make([]string, 0, len(cmds))
-	for n := range cmds {
+	names := make([]string, 0, len(tools))
+	for n := range tools {
 		names = append(names, n)
 	}
 	sort.Strings(names)
 	d.log.Printf("registered session %s with %d tools (%s), workdir=%s",
-		msg.Session, len(cmds), strings.Join(names, ", "), msg.Workdir)
+		msg.Session, len(tools), strings.Join(names, ", "), msg.Workdir)
 
 	json.NewEncoder(conn).Encode(response{OK: true})
 }
@@ -230,10 +231,10 @@ func (d *Daemon) handleExecute(ctx context.Context, conn net.Conn, msg message) 
 		return
 	}
 
-	cmdStr, ok := sess.commands[msg.Command]
+	tool, ok := sess.tools[msg.Command]
 	if !ok {
-		names := make([]string, 0, len(sess.commands))
-		for n := range sess.commands {
+		names := make([]string, 0, len(sess.tools))
+		for n := range sess.tools {
 			names = append(names, n)
 		}
 		sort.Strings(names)
@@ -241,6 +242,26 @@ func (d *Daemon) handleExecute(ctx context.Context, conn net.Conn, msg message) 
 		json.NewEncoder(conn).Encode(response{
 			ExitCode: 1,
 			Output:   fmt.Sprintf("unknown command %q; available: %s", msg.Command, strings.Join(names, ", ")),
+		})
+		return
+	}
+
+	argValues, err := ValidateAndCoerceArgs(tool, msg.Args)
+	if err != nil {
+		d.log.Printf("execute %q (session %s): arg validation failed: %v", msg.Command, msg.Session, err)
+		json.NewEncoder(conn).Encode(response{
+			ExitCode: 2,
+			Output:   "arg validation failed: " + err.Error(),
+		})
+		return
+	}
+
+	cmdStr, err := SubstituteCmd(tool.Cmd, argValues)
+	if err != nil {
+		d.log.Printf("execute %q (session %s): substitution failed: %v", msg.Command, msg.Session, err)
+		json.NewEncoder(conn).Encode(response{
+			ExitCode: 2,
+			Output:   "substitution failed: " + err.Error(),
 		})
 		return
 	}
