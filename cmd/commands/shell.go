@@ -40,7 +40,7 @@ func runShell(wsPath string) error {
 			return fmt.Errorf("host tool daemon: %w", err)
 		}
 		sessionID := hosttool.GenerateSessionID()
-		if err := hosttool.RegisterSession(port, sessionID, cfg.HostTools, sandboxRoot); err != nil {
+		if err := hosttool.RegisterSession(port, sessionID, cfg.HostTools, workDir); err != nil {
 			return fmt.Errorf("register host tool session: %w", err)
 		}
 		defer hosttool.UnregisterSession(port, sessionID)
