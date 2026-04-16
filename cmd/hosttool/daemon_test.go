@@ -190,6 +190,88 @@ func TestEnsureDaemonSkipsWhenRunning(t *testing.T) {
 	}
 }
 
+func TestDaemonExecuteWithArgs(t *testing.T) {
+	port, _ := startTestDaemon(t)
+	sessionID := "test-args-1"
+	tools := []Tool{{
+		Name: "greet",
+		Cmd:  "echo ${name}",
+		Args: []Arg{{Name: "name"}},
+	}}
+	if err := RegisterSession(port, sessionID, tools, t.TempDir()); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	resp := sendMsg(t, port, message{
+		Type:    "execute",
+		Session: sessionID,
+		Command: "greet",
+		Args:    map[string]any{"name": "world"},
+	})
+	if resp.ExitCode != 0 {
+		t.Fatalf("exit = %d, out = %q", resp.ExitCode, resp.Output)
+	}
+	if !strings.Contains(resp.Output, "world") {
+		t.Errorf("output = %q", resp.Output)
+	}
+}
+
+func TestDaemonExecuteArgValidationFails(t *testing.T) {
+	port, _ := startTestDaemon(t)
+	sessionID := "test-args-2"
+	tools := []Tool{{
+		Name: "scale",
+		Cmd:  "echo ${n}",
+		Args: []Arg{{
+			Name: "n", Type: "integer", Min: ptrFloat(0), Max: ptrFloat(10),
+		}},
+	}}
+	if err := RegisterSession(port, sessionID, tools, t.TempDir()); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	resp := sendMsg(t, port, message{
+		Type:    "execute",
+		Session: sessionID,
+		Command: "scale",
+		Args:    map[string]any{"n": float64(999)},
+	})
+	if resp.ExitCode != 2 {
+		t.Errorf("exit = %d, want 2", resp.ExitCode)
+	}
+	if !strings.Contains(resp.Output, "max") {
+		t.Errorf("output = %q, want mention of max", resp.Output)
+	}
+}
+
+func TestDaemonExecuteShellQuoting(t *testing.T) {
+	port, _ := startTestDaemon(t)
+	sessionID := "test-args-3"
+	tools := []Tool{{
+		Name: "echo",
+		Cmd:  "echo ${msg}",
+		Args: []Arg{{Name: "msg"}},
+	}}
+	if err := RegisterSession(port, sessionID, tools, t.TempDir()); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	resp := sendMsg(t, port, message{
+		Type:    "execute",
+		Session: sessionID,
+		Command: "echo",
+		Args:    map[string]any{"msg": "hi; echo PWNED"},
+	})
+	if resp.ExitCode != 0 {
+		t.Fatalf("exit = %d, out = %q", resp.ExitCode, resp.Output)
+	}
+	// If quoting worked, output is a single line "hi; echo PWNED".
+	// If injection succeeded, output would be two lines "hi" + "PWNED".
+	if strings.TrimRight(resp.Output, "\n") != "hi; echo PWNED" {
+		t.Errorf("injection or quoting broken: output = %q", resp.Output)
+	}
+}
+
 // sendExecute connects to the daemon and sends an execute request.
 func sendExecute(t *testing.T, port int, sessionID, command string) response {
 	t.Helper()
