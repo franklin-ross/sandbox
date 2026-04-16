@@ -3,9 +3,16 @@ package hosttool
 import (
 	"fmt"
 	"math"
+	"net"
+	"net/url"
+	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 )
+
+// lookupIP is indirected so tests can replace DNS resolution.
+var lookupIP = net.LookupIP
 
 // ValidateAndCoerceArgs validates an input arg map against a Tool's arg
 // schema and returns a map of string values ready for shell substitution.
@@ -151,5 +158,92 @@ func checkConstraints(a Arg, str string, raw any) error {
 	if a.MaxLength != nil && len(str) > *a.MaxLength {
 		return fmt.Errorf("length %d > max_length %d", len(str), *a.MaxLength)
 	}
+	if err := checkURL(a, str); err != nil {
+		return err
+	}
 	return nil
+}
+
+func checkURL(a Arg, str string) error {
+	if a.URL == nil {
+		return nil
+	}
+	u, err := url.Parse(str)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+	if u.Host == "" {
+		return fmt.Errorf("invalid URL: missing host")
+	}
+	if u.User != nil {
+		return fmt.Errorf("URL must not contain userinfo")
+	}
+
+	schemes := a.URL.Schemes
+	if len(schemes) == 0 {
+		schemes = []string{"https"}
+	}
+	if !containsFold(schemes, u.Scheme) {
+		return fmt.Errorf("URL scheme %q not in %v", u.Scheme, schemes)
+	}
+
+	host := u.Hostname()
+	if len(a.URL.Hosts) > 0 && !matchHost(a.URL.Hosts, host) {
+		return fmt.Errorf("URL host %q not in allowlist %v", host, a.URL.Hosts)
+	}
+	if a.URL.PathPrefix != "" && !strings.HasPrefix(u.Path, a.URL.PathPrefix) {
+		return fmt.Errorf("URL path %q does not start with %q", u.Path, a.URL.PathPrefix)
+	}
+
+	block := true
+	if a.URL.BlockPrivateIPs != nil {
+		block = *a.URL.BlockPrivateIPs
+	}
+	if block {
+		ips, err := lookupIP(host)
+		if err != nil {
+			return fmt.Errorf("resolve %q: %w", host, err)
+		}
+		for _, ip := range ips {
+			if isBlockedIP(ip) {
+				return fmt.Errorf("URL resolves to blocked (private/loopback/link-local) IP %s", ip)
+			}
+		}
+	}
+	return nil
+}
+
+func containsFold(list []string, v string) bool {
+	for _, s := range list {
+		if strings.EqualFold(s, v) {
+			return true
+		}
+	}
+	return false
+}
+
+func matchHost(patterns []string, host string) bool {
+	host = strings.ToLower(host)
+	for _, p := range patterns {
+		ok, _ := filepath.Match(strings.ToLower(p), host)
+		if ok {
+			return true
+		}
+	}
+	return false
+}
+
+var ipv6ULA = mustCIDR("fc00::/7")
+
+func mustCIDR(s string) *net.IPNet {
+	_, n, _ := net.ParseCIDR(s)
+	return n
+}
+
+func isBlockedIP(ip net.IP) bool {
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast() {
+		return true
+	}
+	return ipv6ULA.Contains(ip)
 }

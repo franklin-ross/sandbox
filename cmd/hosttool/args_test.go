@@ -1,6 +1,7 @@
 package hosttool
 
 import (
+	"net"
 	"strings"
 	"testing"
 )
@@ -115,6 +116,97 @@ func TestValidateArgs_Length(t *testing.T) {
 	}
 	if _, err := ValidateAndCoerceArgs(ht, map[string]any{"s": "abcde"}); err == nil {
 		t.Error("too long: want error")
+	}
+}
+
+func TestURL_DefaultBlocksPrivate(t *testing.T) {
+	old := lookupIP
+	lookupIP = func(host string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("10.0.0.1")}, nil
+	}
+	defer func() { lookupIP = old }()
+
+	ht := Tool{Args: []Arg{{Name: "u", URL: &URLConstraint{}}}}
+	_, err := ValidateAndCoerceArgs(ht, map[string]any{"u": "https://evil.example/"})
+	if err == nil || !strings.Contains(err.Error(), "private") {
+		t.Fatalf("want private-ip error, got %v", err)
+	}
+}
+
+func TestURL_SchemeAllowlist(t *testing.T) {
+	old := lookupIP
+	lookupIP = func(host string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("8.8.8.8")}, nil
+	}
+	defer func() { lookupIP = old }()
+
+	ht := Tool{Args: []Arg{{Name: "u", URL: &URLConstraint{}}}}
+	_, err := ValidateAndCoerceArgs(ht, map[string]any{"u": "http://example.com/"})
+	if err == nil || !strings.Contains(err.Error(), "scheme") {
+		t.Fatalf("want scheme rejection (default https), got %v", err)
+	}
+}
+
+func TestURL_HostGlob(t *testing.T) {
+	old := lookupIP
+	lookupIP = func(host string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("8.8.8.8")}, nil
+	}
+	defer func() { lookupIP = old }()
+
+	ht := Tool{Args: []Arg{{Name: "u", URL: &URLConstraint{
+		Hosts: []string{"*.github.io", "github.com"},
+	}}}}
+	if _, err := ValidateAndCoerceArgs(ht, map[string]any{"u": "https://foo.github.io/x"}); err != nil {
+		t.Errorf("glob match: %v", err)
+	}
+	if _, err := ValidateAndCoerceArgs(ht, map[string]any{"u": "https://gitlab.com/x"}); err == nil {
+		t.Error("non-match: want error")
+	}
+}
+
+func TestURL_PathPrefix(t *testing.T) {
+	old := lookupIP
+	lookupIP = func(host string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("8.8.8.8")}, nil
+	}
+	defer func() { lookupIP = old }()
+
+	ht := Tool{Args: []Arg{{Name: "u", URL: &URLConstraint{PathPrefix: "/api/"}}}}
+	if _, err := ValidateAndCoerceArgs(ht, map[string]any{"u": "https://x.com/api/foo"}); err != nil {
+		t.Errorf("prefix match: %v", err)
+	}
+	if _, err := ValidateAndCoerceArgs(ht, map[string]any{"u": "https://x.com/other"}); err == nil {
+		t.Error("prefix miss: want error")
+	}
+}
+
+func TestURL_AllowPrivateWhenDisabled(t *testing.T) {
+	old := lookupIP
+	lookupIP = func(host string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("127.0.0.1")}, nil
+	}
+	defer func() { lookupIP = old }()
+
+	ht := Tool{Args: []Arg{{Name: "u", URL: &URLConstraint{
+		BlockPrivateIPs: ptrBool(false),
+	}}}}
+	if _, err := ValidateAndCoerceArgs(ht, map[string]any{"u": "https://localhost/"}); err != nil {
+		t.Errorf("allow-private: %v", err)
+	}
+}
+
+func TestURL_MetadataIP(t *testing.T) {
+	old := lookupIP
+	lookupIP = func(host string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("169.254.169.254")}, nil
+	}
+	defer func() { lookupIP = old }()
+
+	ht := Tool{Args: []Arg{{Name: "u", URL: &URLConstraint{}}}}
+	_, err := ValidateAndCoerceArgs(ht, map[string]any{"u": "https://metadata.example/"})
+	if err == nil {
+		t.Fatal("want rejection of link-local metadata IP")
 	}
 }
 
