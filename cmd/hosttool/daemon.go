@@ -96,7 +96,7 @@ func RunDaemon(ctx context.Context, port int) error {
 	logger := log.New(f, "", log.LstdFlags)
 
 	addr := fmt.Sprintf(":%d", port)
-	listener, err := net.Listen("tcp4", addr)
+	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", addr, err)
 	}
