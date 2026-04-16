@@ -225,6 +225,36 @@ func TestValidateCmd_Reject(t *testing.T) {
 	}
 }
 
+func TestSubstituteCmd(t *testing.T) {
+	got, err := SubstituteCmd("./deploy.sh ${env} ${tag}", map[string]string{
+		"env": "prod", "tag": "v1.0",
+	})
+	if err != nil {
+		t.Fatalf("unexpected: %v", err)
+	}
+	want := "./deploy.sh 'prod' 'v1.0'"
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestSubstituteCmd_Escapes(t *testing.T) {
+	got, err := SubstituteCmd("echo ${msg}", map[string]string{"msg": "it's"})
+	if err != nil {
+		t.Fatalf("unexpected: %v", err)
+	}
+	if !strings.Contains(got, `'it'"'"'s'`) {
+		t.Errorf("got %q, want shell-escaped single quote", got)
+	}
+}
+
+func TestSubstituteCmd_MissingArg(t *testing.T) {
+	_, err := SubstituteCmd("echo ${missing}", map[string]string{})
+	if err == nil {
+		t.Fatal("want error for missing arg")
+	}
+}
+
 func TestValidateArgs_UnknownArg(t *testing.T) {
 	ht := Tool{Args: []Arg{{Name: "a"}}}
 	_, err := ValidateAndCoerceArgs(ht, map[string]any{"a": "x", "b": "y"})
