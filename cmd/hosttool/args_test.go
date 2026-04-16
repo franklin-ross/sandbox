@@ -210,6 +210,21 @@ func TestURL_MetadataIP(t *testing.T) {
 	}
 }
 
+func TestValidateCmd_Accept(t *testing.T) {
+	ht := Tool{Args: []Arg{{Name: "s", Validate: "grep -q ok"}}}
+	if _, err := ValidateAndCoerceArgs(ht, map[string]any{"s": "ok"}); err != nil {
+		t.Errorf("accept case: %v", err)
+	}
+}
+
+func TestValidateCmd_Reject(t *testing.T) {
+	ht := Tool{Args: []Arg{{Name: "s", Validate: "grep -q ok"}}}
+	_, err := ValidateAndCoerceArgs(ht, map[string]any{"s": "nope"})
+	if err == nil || !strings.Contains(err.Error(), "validate") {
+		t.Fatalf("reject case: want validate error, got %v", err)
+	}
+}
+
 func TestValidateArgs_UnknownArg(t *testing.T) {
 	ht := Tool{Args: []Arg{{Name: "a"}}}
 	_, err := ValidateAndCoerceArgs(ht, map[string]any{"a": "x", "b": "y"})

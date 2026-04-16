@@ -1,14 +1,17 @@
 package hosttool
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"net"
 	"net/url"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // lookupIP is indirected so tests can replace DNS resolution.
@@ -160,6 +163,23 @@ func checkConstraints(a Arg, str string, raw any) error {
 	}
 	if err := checkURL(a, str); err != nil {
 		return err
+	}
+	if a.Validate != "" {
+		if err := runValidateCmd(a.Validate, str); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func runValidateCmd(cmdStr, value string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	c := exec.CommandContext(ctx, "sh", "-c", cmdStr)
+	c.Stdin = strings.NewReader(value)
+	out, err := c.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("validate cmd rejected: %s", strings.TrimSpace(string(out)))
 	}
 	return nil
 }
