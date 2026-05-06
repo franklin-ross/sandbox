@@ -7,12 +7,12 @@ A CLI tool for running Claude Code in sandboxed Docker containers with network f
 The official Claude Code Docker sandbox has an opinionated auth flow that makes autonomous agent use painful. This tool gives you:
 
 - **Network firewalling** — restricts outbound traffic to Claude API, package registries (npm, Go, Rust, Ruby, PyPI), and GitHub
-- **No permission prompts** — uses `--dangerously-skip-permissions` by default, because the container IS the sandbox
-- **zsh shell at workspace root** — drops you into zsh, not straight into Claude
-- **VSCode attachment** — `sandbox code .` opens VSCode remote into the container
+- **No permission prompts** — `sandbox claude .` uses `--dangerously-skip-permissions` by default, because the container IS the sandbox
+- **Sandboxed VSCode** — `sandbox code .` opens VSCode remote into the container
 - **Auto-sync files** — automatically syncs files in `.sandbox/user/` to the container user directory, including binaries
 - **Configuration** — More/simpler configuration options
 - **Post-sync hooks** — runs commands inside the container after every sync (e.g., `npm install -g some-tool`)
+- **Host Tools** — data-driven MCP tools to run privileged commands outside the sandbox without credentials going near the sandbox
 
 ## Install
 
@@ -144,6 +144,8 @@ See [specs/sandbox-config.spec.md](specs/sandbox-config.spec.md) for full detail
 Host tools let the agent inside the sandbox trigger a limited set of pre-configured commands on the host machine. Tools can accept typed, validated arguments that are shell-quoted before substitution, so the agent can take privileged action without ever coming near credentials or injecting shell metacharacters.
 
 When you use `sandbox claude`, the tool automatically exposes host tools as MCP tools, so Claude sees them as first-class tool calls with full input schemas.
+
+**SAFETY NOTE**: Create simple, focused tools with minimal surface area. These are a potential escalation point, so make them easy to grok, with the simplest args possible. Only use this for tools that need to run outside the sandbox, anything else should be a binary or shell script inside the sandbox.
 
 ```yaml
 host_tools:
