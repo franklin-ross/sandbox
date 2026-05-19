@@ -120,11 +120,16 @@ sync:
 
 env:
     NODE_ENV: development
-    GITHUB_TOKEN: $GITHUB_TOKEN # expanded from host env
+    HELLO: $HELLO # expanded from host env
+    # BEWARE: These environment variables are readable inside the container,
+    # bringing secrets or credentials into the container this way can defeat
+    # the purpose of using a sandbox.
 
 firewall:
     allow:
         - domain: api.example.com
+        - domain: api2.example.com
+          ports: [22, 80, 443] 
         - cidr: 10.0.0.0/8
 
 # Run shell commands whenever the config or any sync'd files change
@@ -133,6 +138,17 @@ on_sync:
       cmd: npm install -g my-tool
     - cmd: chmod 600 ~/.ssh/*
       root: true
+
+# MCP tools allowing the unprivileged sandbox to run commands in the privileged host environment
+# without having access to the credentials there.
+host_tools:
+    - name: view_pr
+      description: View information and comments for a pull request in the current repository
+      cmd: gh pr view ${pr_number} --comments
+      args:
+          - name: pr_number
+            type: integer
+            min: 0
 ```
 
 Whenever this config or any of the synced files change, the next command resynchronises everything into the sandbox.
