@@ -103,3 +103,44 @@ message, reads the response, and disconnects.
   all major Docker runtimes (OrbStack, Docker Desktop, Colima, Rancher
   Desktop) support. A non-standard runtime that lacks this hostname
   would need adaptation.
+
+## Addendum: dual-plane transport for sandbox-escape hardening
+
+A security review found that a single TCP channel let a prompt-injected
+agent in the container `register` its own tool (an arbitrary host command)
+and then `execute` it — a full sandbox escape. Source-address filtering
+does **not** help: the Docker runtime NATs the container's
+`host.docker.internal` connection onto the host **loopback**, so the
+daemon sees `127.0.0.1` for both the container and the host orchestrator
+(verified on OrbStack). Source-address filtering cannot distinguish them.
+
+The protocol is now split into two planes:
+
+- **Data plane — TCP loopback (`127.0.0.1:<port>`).** Serves `execute`
+  only. The container reaches it via `host.docker.internal`. We narrowed
+  the bind from `0.0.0.0` to loopback to keep it off the LAN. Each
+  `execute` must present a per-session token handed to the container via
+  its environment.
+- **Control plane — Unix domain socket
+  (`~/.sandbox/daemon/control-<port>.sock`, mode 0600).** Serves
+  `register` / `unregister` only. This reuses the finding from option 1
+  above: a container in the VM **cannot `connect()` to a host Unix
+  socket** (`ECONNREFUSED`, re-verified — even with the socket
+  bind-mounted in). What made Unix sockets unusable for the data plane is
+  exactly the property we want for the control plane: only the host
+  orchestrator, sharing the daemon's kernel, can reach it. A host-only
+  control token is still required as a second layer.
+
+The data plane rejects `register`/`unregister` outright, and the control
+plane rejects `execute`, so neither channel can perform the other's
+operations.
+
+Defence in depth around this:
+
+- The daemon's control token lives in a 0600 file the container does not
+  mount; secrets are never passed as process arguments (`docker exec`
+  uses the name-only `-e NAME` env-passthrough form, not `-e NAME=value`,
+  so values never appear in `ps`).
+- `sandbox` refuses to mount the home directory (or any ancestor) or the
+  `~/.sandbox` control directory into a container, so the container cannot
+  read the control socket or token that way.

@@ -10,6 +10,8 @@ import (
 	"time"
 )
 
+const testToken = "test-token-abc123"
+
 // findFreePort returns a port the OS has confirmed is available.
 func findFreePort(t *testing.T) int {
 	t.Helper()
@@ -61,7 +63,7 @@ func TestDaemonRegisterAndExecute(t *testing.T) {
 	tools := []Tool{
 		{Name: "hello", Cmd: "echo hello-world"},
 	}
-	if err := RegisterSession(port, sessionID, tools, t.TempDir()); err != nil {
+	if err := RegisterSession(port, sessionID, testToken, tools, t.TempDir()); err != nil {
 		t.Fatalf("register: %v", err)
 	}
 
@@ -82,7 +84,7 @@ func TestDaemonRejectUnknownCommand(t *testing.T) {
 	tools := []Tool{
 		{Name: "deploy", Cmd: "echo deploy"},
 	}
-	if err := RegisterSession(port, sessionID, tools, t.TempDir()); err != nil {
+	if err := RegisterSession(port, sessionID, testToken, tools, t.TempDir()); err != nil {
 		t.Fatalf("register: %v", err)
 	}
 
@@ -117,7 +119,7 @@ func TestDaemonNonzeroExitCode(t *testing.T) {
 	tools := []Tool{
 		{Name: "fail", Cmd: "exit 42"},
 	}
-	if err := RegisterSession(port, sessionID, tools, t.TempDir()); err != nil {
+	if err := RegisterSession(port, sessionID, testToken, tools, t.TempDir()); err != nil {
 		t.Fatalf("register: %v", err)
 	}
 
@@ -131,12 +133,12 @@ func TestDaemonMultipleSessions(t *testing.T) {
 	port, _ := startTestDaemon(t)
 
 	// Register two sessions with different commands for the same name.
-	if err := RegisterSession(port, "s1", []Tool{
+	if err := RegisterSession(port, "s1", testToken, []Tool{
 		{Name: "greet", Cmd: "echo from-session-1"},
 	}, t.TempDir()); err != nil {
 		t.Fatalf("register s1: %v", err)
 	}
-	if err := RegisterSession(port, "s2", []Tool{
+	if err := RegisterSession(port, "s2", testToken, []Tool{
 		{Name: "greet", Cmd: "echo from-session-2"},
 	}, t.TempDir()); err != nil {
 		t.Fatalf("register s2: %v", err)
@@ -157,7 +159,7 @@ func TestDaemonUnregister(t *testing.T) {
 	port, _ := startTestDaemon(t)
 
 	sessionID := "test-unregister"
-	if err := RegisterSession(port, sessionID, []Tool{
+	if err := RegisterSession(port, sessionID, testToken, []Tool{
 		{Name: "hello", Cmd: "echo hi"},
 	}, t.TempDir()); err != nil {
 		t.Fatalf("register: %v", err)
@@ -198,13 +200,14 @@ func TestDaemonExecuteWithArgs(t *testing.T) {
 		Cmd:  "echo ${name}",
 		Args: []Arg{{Name: "name"}},
 	}}
-	if err := RegisterSession(port, sessionID, tools, t.TempDir()); err != nil {
+	if err := RegisterSession(port, sessionID, testToken, tools, t.TempDir()); err != nil {
 		t.Fatalf("register: %v", err)
 	}
 
 	resp := sendMsg(t, port, message{
 		Type:    "execute",
 		Session: sessionID,
+		Token:   testToken,
 		Command: "greet",
 		Args:    map[string]any{"name": "world"},
 	})
@@ -226,13 +229,14 @@ func TestDaemonExecuteArgValidationFails(t *testing.T) {
 			Name: "n", Type: "integer", Min: ptrFloat(0), Max: ptrFloat(10),
 		}},
 	}}
-	if err := RegisterSession(port, sessionID, tools, t.TempDir()); err != nil {
+	if err := RegisterSession(port, sessionID, testToken, tools, t.TempDir()); err != nil {
 		t.Fatalf("register: %v", err)
 	}
 
 	resp := sendMsg(t, port, message{
 		Type:    "execute",
 		Session: sessionID,
+		Token:   testToken,
 		Command: "scale",
 		Args:    map[string]any{"n": float64(999)},
 	})
@@ -252,13 +256,14 @@ func TestDaemonExecuteShellQuoting(t *testing.T) {
 		Cmd:  "echo ${msg}",
 		Args: []Arg{{Name: "msg"}},
 	}}
-	if err := RegisterSession(port, sessionID, tools, t.TempDir()); err != nil {
+	if err := RegisterSession(port, sessionID, testToken, tools, t.TempDir()); err != nil {
 		t.Fatalf("register: %v", err)
 	}
 
 	resp := sendMsg(t, port, message{
 		Type:    "execute",
 		Session: sessionID,
+		Token:   testToken,
 		Command: "echo",
 		Args:    map[string]any{"msg": "hi; echo PWNED"},
 	})
@@ -272,22 +277,129 @@ func TestDaemonExecuteShellQuoting(t *testing.T) {
 	}
 }
 
+func TestDaemonRejectExecuteBadToken(t *testing.T) {
+	port, _ := startTestDaemon(t)
+
+	sessionID := "test-token-mismatch"
+	tools := []Tool{{Name: "hello", Cmd: "echo hi"}}
+	if err := RegisterSession(port, sessionID, testToken, tools, t.TempDir()); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	// Execute with the wrong token must be rejected before the command runs.
+	resp := sendMsg(t, port, message{
+		Type:    "execute",
+		Session: sessionID,
+		Token:   "wrong-token",
+		Command: "hello",
+	})
+	if resp.ExitCode != 1 {
+		t.Errorf("exit_code = %d, want 1", resp.ExitCode)
+	}
+	if !strings.Contains(resp.Output, "unauthorized") {
+		t.Errorf("output = %q, want 'unauthorized'", resp.Output)
+	}
+
+	// An empty token (as a no-token client would send) is also rejected.
+	resp = sendMsg(t, port, message{Type: "execute", Session: sessionID, Command: "hello"})
+	if resp.ExitCode != 1 || !strings.Contains(resp.Output, "unauthorized") {
+		t.Errorf("no-token execute: exit=%d output=%q, want unauthorized", resp.ExitCode, resp.Output)
+	}
+}
+
+// TestDataPlaneRejectsRegister models the sandbox container: the only channel
+// it can reach is the TCP data plane (the runtime makes its connection look
+// like loopback). register/unregister must be refused there regardless of any
+// token, so a prompt-injected agent cannot define its own tool.
+func TestDataPlaneRejectsRegister(t *testing.T) {
+	port, _ := startTestDaemon(t)
+
+	resp := sendMsg(t, port, message{
+		Type:    "register",
+		Session: "attacker",
+		Control: testToken, // even if it somehow knew a control token
+		Token:   "attacker-token",
+		Tools:   []Tool{{Name: "evil", Cmd: "echo PWNED"}},
+		Workdir: t.TempDir(),
+	})
+	if resp.OK {
+		t.Fatal("register over the data plane was accepted, want rejected")
+	}
+	if !strings.Contains(resp.Output, "data plane") {
+		t.Errorf("output = %q, want mention of data plane", resp.Output)
+	}
+
+	// The attacker's tool must not exist / run.
+	resp = sendMsg(t, port, message{
+		Type:    "execute",
+		Session: "attacker",
+		Token:   "attacker-token",
+		Command: "evil",
+	})
+	if resp.ExitCode == 0 || strings.Contains(resp.Output, "PWNED") {
+		t.Fatalf("attacker tool executed: exit=%d output=%q", resp.ExitCode, resp.Output)
+	}
+}
+
+// TestControlPlaneRejectsBadControlToken verifies the second layer: even a
+// caller that reaches the host-only control socket must present the control
+// token to register.
+func TestControlPlaneRejectsBadControlToken(t *testing.T) {
+	port, _ := startTestDaemon(t)
+
+	for _, control := range []string{"", "guessed-control-token"} {
+		resp := sendControlMsg(t, port, message{
+			Type:    "register",
+			Session: "attacker",
+			Control: control,
+			Token:   "attacker-token",
+			Tools:   []Tool{{Name: "evil", Cmd: "echo PWNED"}},
+			Workdir: t.TempDir(),
+		})
+		if resp.OK {
+			t.Fatalf("control-plane register with control=%q was accepted, want rejected", control)
+		}
+	}
+}
+
+// TestControlPlaneRejectsExecute verifies execute is not accepted on the
+// control plane (it belongs to the data plane).
+func TestControlPlaneRejectsExecute(t *testing.T) {
+	port, _ := startTestDaemon(t)
+	resp := sendControlMsg(t, port, message{Type: "execute", Session: "x", Command: "y"})
+	if resp.OK || !strings.Contains(resp.Output, "control plane") {
+		t.Errorf("execute on control plane: ok=%v output=%q, want rejected", resp.OK, resp.Output)
+	}
+}
+
 // sendExecute connects to the daemon and sends an execute request.
 func sendExecute(t *testing.T, port int, sessionID, command string) response {
 	t.Helper()
 	return sendMsg(t, port, message{
 		Type:    "execute",
 		Session: sessionID,
+		Token:   testToken,
 		Command: command,
 	})
 }
 
+// sendMsg sends a message over the TCP data plane.
 func sendMsg(t *testing.T, port int, msg message) response {
 	t.Helper()
-	addr := fmt.Sprintf("127.0.0.1:%d", port)
-	conn, err := net.DialTimeout("tcp", addr, time.Second)
+	return sendOn(t, "tcp", fmt.Sprintf("127.0.0.1:%d", port), msg)
+}
+
+// sendControlMsg sends a message over the Unix-socket control plane.
+func sendControlMsg(t *testing.T, port int, msg message) response {
+	t.Helper()
+	return sendOn(t, "unix", controlSocketPath(port), msg)
+}
+
+func sendOn(t *testing.T, network, addr string, msg message) response {
+	t.Helper()
+	conn, err := net.DialTimeout(network, addr, time.Second)
 	if err != nil {
-		t.Fatalf("dial %s: %v", addr, err)
+		t.Fatalf("dial %s %s: %v", network, addr, err)
 	}
 	defer conn.Close()
 	conn.SetDeadline(time.Now().Add(10 * time.Second))

@@ -7,6 +7,7 @@ const { createInterface: readline } = require("node:readline");
 
 const tools = JSON.parse(readFileSync("/opt/sandbox-host-tools.json", "utf8"));
 const session = process.env.SANDBOX_SESSION;
+const token = process.env.SANDBOX_HOSTTOOL_TOKEN || "";
 const port = parseInt(process.env.SANDBOX_HOSTTOOL_PORT || "9847", 10);
 const host = "host.docker.internal";
 
@@ -61,6 +62,7 @@ function callDaemon(toolName, args) {
                 JSON.stringify({
                     type: "execute",
                     session,
+                    token,
                     command: toolName,
                     args,
                 }) + "\n",

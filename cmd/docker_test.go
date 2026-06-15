@@ -27,6 +27,57 @@ func TestContainerName(t *testing.T) {
 	}
 }
 
+func TestValidateWorkspaceMount(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	control := filepath.Join(home, ".sandbox")
+	mustMkdir(t, control)
+	mustMkdir(t, filepath.Join(control, "daemon"))
+	proj := filepath.Join(home, "code", "proj")
+	mustMkdir(t, proj)
+	outside := t.TempDir() // a workspace outside the home tree
+
+	blocked := []struct {
+		name string
+		path string
+	}{
+		{"home itself", home},
+		{"ancestor of home", filepath.Dir(home)},
+		{"control dir", control},
+		{"inside control dir", filepath.Join(control, "daemon")},
+	}
+	for _, c := range blocked {
+		t.Run("blocked/"+c.name, func(t *testing.T) {
+			if err := validateWorkspaceMount(c.path); err == nil {
+				t.Errorf("validateWorkspaceMount(%q) = nil, want error", c.path)
+			}
+		})
+	}
+
+	allowed := []struct {
+		name string
+		path string
+	}{
+		{"project under home", proj},
+		{"unrelated dir outside home", outside},
+	}
+	for _, c := range allowed {
+		t.Run("allowed/"+c.name, func(t *testing.T) {
+			if err := validateWorkspaceMount(c.path); err != nil {
+				t.Errorf("validateWorkspaceMount(%q) = %v, want nil", c.path, err)
+			}
+		})
+	}
+}
+
+func mustMkdir(t *testing.T, path string) {
+	t.Helper()
+	if err := os.MkdirAll(path, 0755); err != nil {
+		t.Fatalf("mkdir %s: %v", path, err)
+	}
+}
+
 func TestContainerNameCollision(t *testing.T) {
 	// Two different paths with the same basename produce the same container
 	// name. This documents a known limitation — callers should be aware.

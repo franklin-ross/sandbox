@@ -409,6 +409,10 @@ func TestContainerLabels(t *testing.T) {
 	}
 }
 
+// itHostToolToken is the per-session execute secret used by the integration
+// daemon helpers.
+const itHostToolToken = "integration-token-xyz"
+
 // daemonToolResponse mirrors the wire response shape for integration tests.
 type daemonToolResponse struct {
 	OK       bool   `json:"ok"`
@@ -445,7 +449,7 @@ func startHostToolDaemon(t *testing.T, tools []hosttool.Tool) (sessionID string,
 	}
 
 	sessionID = hosttool.GenerateSessionID()
-	if err := hosttool.RegisterSession(port, sessionID, tools, wsPath); err != nil {
+	if err := hosttool.RegisterSession(port, sessionID, itHostToolToken, tools, wsPath); err != nil {
 		t.Fatalf("register session: %v", err)
 	}
 	t.Cleanup(func() { hosttool.UnregisterSession(port, sessionID) })
@@ -462,7 +466,7 @@ func execDaemonTool(port int, sessionID, toolName string) (daemonToolResponse, e
 	}
 	defer conn.Close()
 
-	msg := map[string]any{"type": "execute", "session": sessionID, "command": toolName}
+	msg := map[string]any{"type": "execute", "session": sessionID, "token": itHostToolToken, "command": toolName}
 	data, _ := json.Marshal(msg)
 	data = append(data, '\n')
 	conn.Write(data)

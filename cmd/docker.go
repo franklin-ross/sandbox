@@ -23,9 +23,71 @@ var (
 	LabelWs   = "sandbox.workspace"
 )
 
+// SandboxControlDir returns the host directory holding global sandbox state
+// (config and host-tool daemon secrets). It must never be mounted into a
+// container.
+func SandboxControlDir() string {
+	home, _ := os.UserHomeDir()
+	if home == "" {
+		return ""
+	}
+	return filepath.Join(home, ".sandbox")
+}
+
+// resolvePathForCompare returns a cleaned, symlink-resolved absolute path for
+// comparison. It falls back to a lexical clean when the path does not exist.
+func resolvePathForCompare(p string) string {
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return filepath.Clean(p)
+	}
+	return abs
+}
+
+// pathWithin reports whether child is parent itself or nested under parent.
+func pathWithin(parent, child string) bool {
+	if parent == "" {
+		return false
+	}
+	if parent == child {
+		return true
+	}
+	return strings.HasPrefix(child, parent+string(os.PathSeparator))
+}
+
+// validateWorkspaceMount rejects workspace paths that would expose sensitive
+// host state to the sandbox. Mounting the home directory (or any ancestor)
+// hands the container the user's credentials; mounting the sandbox control
+// directory (~/.sandbox) — or any path that contains or is contained by it —
+// would leak the host-tool daemon's control token, defeating the sandbox.
+func validateWorkspaceMount(wsPath string) error {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return nil // can't determine home; nothing to compare against
+	}
+	ws := resolvePathForCompare(wsPath)
+	homeDir := resolvePathForCompare(home)
+	control := resolvePathForCompare(filepath.Join(home, ".sandbox"))
+
+	if pathWithin(ws, homeDir) {
+		return fmt.Errorf("refusing to mount %s: it is or contains your home directory %s, which would expose your credentials to the sandbox", wsPath, homeDir)
+	}
+	if pathWithin(ws, control) || pathWithin(control, ws) {
+		return fmt.Errorf("refusing to mount %s: it overlaps the sandbox control directory %s, which holds host-tool daemon secrets", wsPath, control)
+	}
+	return nil
+}
+
 // EnsureStarted makes sure the container is running, creating or restarting it
 // as needed. It does NOT sync — callers handle that.
 func EnsureStarted(wsPath string) (string, error) {
+	if err := validateWorkspaceMount(wsPath); err != nil {
+		return "", err
+	}
+
 	name := ContainerName(wsPath)
 
 	if IsRunning(name) || ContainerExists(name) {
@@ -159,20 +221,20 @@ func BuildImage(hash string) error {
 func DockerExec(container, workdir string, cfg *SandboxConfig, extraEnv map[string]string, args ...string) error {
 	cmdArgs := []string{"exec", "-it", "-w", workdir}
 
-	// Pass through TERM so colors work in the container shell
+	// Collect the env vars to pass into the container. Values are passed via the
+	// docker process's own environment (the name-only "-e NAME" form), never on
+	// the command line — argv is world-readable through `ps`, so putting secrets
+	// like the host-tool token or GITHUB_TOKEN there would leak them to any
+	// local user.
+	passEnv := map[string]string{}
+
+	// Pass through TERM so colors work in the container shell.
 	if term := os.Getenv("TERM"); term != "" {
-		cmdArgs = append(cmdArgs, "-e", "TERM="+term)
+		passEnv["TERM"] = term
 	}
 
-	if cfg != nil && len(cfg.Env) > 0 {
-		keys := make([]string, 0, len(cfg.Env))
-		for k := range cfg.Env {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-
-		for _, k := range keys {
-			v := cfg.Env[k]
+	if cfg != nil {
+		for k, v := range cfg.Env {
 			if strings.HasPrefix(v, "$") {
 				expanded := os.Getenv(v[1:])
 				if expanded == "" {
@@ -180,26 +242,33 @@ func DockerExec(container, workdir string, cfg *SandboxConfig, extraEnv map[stri
 				}
 				v = expanded
 			}
-			cmdArgs = append(cmdArgs, "-e", k+"="+v)
+			passEnv[k] = v
 		}
 	}
 
-	// Extra env vars (e.g. session-specific host tool vars)
-	if len(extraEnv) > 0 {
-		keys := make([]string, 0, len(extraEnv))
-		for k := range extraEnv {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			cmdArgs = append(cmdArgs, "-e", k+"="+extraEnv[k])
-		}
+	// Extra env vars (e.g. session-specific host tool vars) take precedence.
+	for k, v := range extraEnv {
+		passEnv[k] = v
+	}
+
+	keys := make([]string, 0, len(passEnv))
+	for k := range passEnv {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		cmdArgs = append(cmdArgs, "-e", k) // name only; value supplied via cmd.Env
 	}
 
 	cmdArgs = append(cmdArgs, container)
 	cmdArgs = append(cmdArgs, args...)
 
 	cmd := exec.Command("docker", cmdArgs...)
+	env := os.Environ()
+	for _, k := range keys {
+		env = append(env, k+"="+passEnv[k])
+	}
+	cmd.Env = env
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

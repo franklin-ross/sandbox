@@ -40,14 +40,16 @@ func runShell(wsPath string) error {
 			return fmt.Errorf("host tool daemon: %w", err)
 		}
 		sessionID := hosttool.GenerateSessionID()
-		if err := hosttool.RegisterSession(port, sessionID, cfg.HostTools, workDir); err != nil {
+		token := hosttool.GenerateToken()
+		if err := hosttool.RegisterSession(port, sessionID, token, cfg.HostTools, workDir); err != nil {
 			return fmt.Errorf("register host tool session: %w", err)
 		}
 		defer hosttool.UnregisterSession(port, sessionID)
 
 		extraEnv = map[string]string{
-			"SANDBOX_SESSION":       sessionID,
-			"SANDBOX_HOSTTOOL_PORT": fmt.Sprintf("%d", port),
+			"SANDBOX_SESSION":        sessionID,
+			"SANDBOX_HOSTTOOL_PORT":  fmt.Sprintf("%d", port),
+			"SANDBOX_HOSTTOOL_TOKEN": token,
 		}
 	}
 
