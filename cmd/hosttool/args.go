@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"maps"
 	"net/url"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -55,7 +55,24 @@ func ValidateAndCoerceArgs(ht Tool, input map[string]any) (map[string]string, er
 		if err := checkConstraints(a, str, raw); err != nil {
 			return nil, fmt.Errorf("arg %q: %w", a.Name, err)
 		}
+		pin, err := checkURL(a, str)
+		if err != nil {
+			return nil, fmt.Errorf("arg %q: %w", a.Name, err)
+		}
+		if a.Validate != "" {
+			if err := runValidateCmd(a.Validate, str); err != nil {
+				return nil, fmt.Errorf("arg %q: %w", a.Name, err)
+			}
+		}
 		out[a.Name] = str
+		// Expose the validated address so a command can force its HTTP client to
+		// connect to the exact IP we checked (e.g. `curl --resolve ${u_resolve}
+		// ${u}`), closing the DNS-rebinding gap between validation and the
+		// command's own re-resolution. Components are provided for clients that
+		// pin differently than curl's --resolve.
+		if pin != nil {
+			maps.Copy(out, pin.values(a.Name))
+		}
 	}
 	return out, nil
 }
@@ -161,14 +178,6 @@ func checkConstraints(a Arg, str string, raw any) error {
 	if a.MaxLength != nil && len(str) > *a.MaxLength {
 		return fmt.Errorf("length %d > max_length %d", len(str), *a.MaxLength)
 	}
-	if err := checkURL(a, str); err != nil {
-		return err
-	}
-	if a.Validate != "" {
-		if err := runValidateCmd(a.Validate, str); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
@@ -184,19 +193,53 @@ func runValidateCmd(cmdStr, value string) error {
 	return nil
 }
 
-func checkURL(a Arg, str string) error {
+// urlDerivedSuffixes are the placeholder suffixes a URL arg named <name>
+// exposes once its host resolves to a validated IP:
+//
+//	${<name>_resolve}  -> "host:port:ip"  (curl/wget2 --resolve form)
+//	${<name>_ip}       -> the validated IP
+//	${<name>_host}     -> the hostname
+//	${<name>_port}     -> the port
+//
+// The components let clients that pin differently than curl assemble their own
+// form (a Host header plus IP, an http:// URL rewrite, etc.).
+var urlDerivedSuffixes = []string{"_resolve", "_ip", "_host", "_port"}
+
+// urlPin holds the validated address of a URL arg.
+type urlPin struct {
+	host, port, ip string
+}
+
+// values returns the derived placeholder name→value map for an arg named name.
+func (p urlPin) values(name string) map[string]string {
+	return map[string]string{
+		name + "_resolve": p.host + ":" + p.port + ":" + p.ip,
+		name + "_ip":      p.ip,
+		name + "_host":    p.host,
+		name + "_port":    p.port,
+	}
+}
+
+// checkURL validates a URL-typed arg. When private-IP blocking is enabled it
+// resolves the host and rejects any blocked address, then returns a urlPin with
+// the validated address. A command can feed the pin to its HTTP client (e.g.
+// `curl --resolve ${arg_resolve} ${arg}`) so the fetch connects to exactly the
+// address we checked — closing the DNS-rebinding / TOCTOU gap where the
+// command's own DNS lookup could resolve differently. Returns (nil, nil) when
+// there is no URL constraint, blocking is disabled, or the port is unknown.
+func checkURL(a Arg, str string) (*urlPin, error) {
 	if a.URL == nil {
-		return nil
+		return nil, nil
 	}
 	u, err := url.Parse(str)
 	if err != nil {
-		return fmt.Errorf("invalid URL: %w", err)
+		return nil, fmt.Errorf("invalid URL: %w", err)
 	}
 	if u.Host == "" {
-		return fmt.Errorf("invalid URL: missing host")
+		return nil, fmt.Errorf("invalid URL: missing host")
 	}
 	if u.User != nil {
-		return fmt.Errorf("URL must not contain userinfo")
+		return nil, fmt.Errorf("URL must not contain userinfo")
 	}
 
 	schemes := a.URL.Schemes
@@ -204,33 +247,56 @@ func checkURL(a Arg, str string) error {
 		schemes = []string{"https"}
 	}
 	if !containsFold(schemes, u.Scheme) {
-		return fmt.Errorf("URL scheme %q not in %v", u.Scheme, schemes)
+		return nil, fmt.Errorf("URL scheme %q not in %v", u.Scheme, schemes)
 	}
 
 	host := u.Hostname()
 	if len(a.URL.Hosts) > 0 && !matchHost(a.URL.Hosts, host) {
-		return fmt.Errorf("URL host %q not in allowlist %v", host, a.URL.Hosts)
+		return nil, fmt.Errorf("URL host %q not in allowlist %v", host, a.URL.Hosts)
 	}
 	if a.URL.PathPrefix != "" && !strings.HasPrefix(u.Path, a.URL.PathPrefix) {
-		return fmt.Errorf("URL path %q does not start with %q", u.Path, a.URL.PathPrefix)
+		return nil, fmt.Errorf("URL path %q does not start with %q", u.Path, a.URL.PathPrefix)
 	}
 
 	block := true
 	if a.URL.BlockPrivateIPs != nil {
 		block = *a.URL.BlockPrivateIPs
 	}
-	if block {
-		ips, err := lookupIP(host)
-		if err != nil {
-			return fmt.Errorf("resolve %q: %w", host, err)
-		}
-		for _, ip := range ips {
-			if isBlockedIP(ip) {
-				return fmt.Errorf("URL resolves to blocked (private/loopback/link-local) IP %s", ip)
-			}
+	if !block {
+		return nil, nil
+	}
+
+	ips, err := lookupIP(host)
+	if err != nil {
+		return nil, fmt.Errorf("resolve %q: %w", host, err)
+	}
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("resolve %q: no addresses", host)
+	}
+	for _, ip := range ips {
+		if isBlockedIP(ip) {
+			return nil, fmt.Errorf("URL resolves to blocked (private/loopback/link-local) IP %s", ip)
 		}
 	}
-	return nil
+	// All returned addresses passed; pin the first.
+	port := u.Port()
+	if port == "" {
+		port = defaultPort(u.Scheme)
+	}
+	if port == "" {
+		return nil, nil // no port to pin against
+	}
+	return &urlPin{host: host, port: port, ip: ips[0].String()}, nil
+}
+
+func defaultPort(scheme string) string {
+	switch strings.ToLower(scheme) {
+	case "https":
+		return "443"
+	case "http":
+		return "80"
+	}
+	return ""
 }
 
 func containsFold(list []string, v string) bool {
@@ -242,15 +308,40 @@ func containsFold(list []string, v string) bool {
 	return false
 }
 
+// matchHost reports whether host matches any allowlist pattern. Matching is
+// literal — never glob — so dots are significant. A pattern is either an exact
+// host ("api.github.com") or a leading-dot suffix (".github.com") that matches
+// that domain and any subdomain. Wildcards are rejected at config-load time
+// (ValidateHostPattern) because filepath-style "*" also crosses dots, silently
+// widening the allowlist.
 func matchHost(patterns []string, host string) bool {
 	host = strings.ToLower(host)
 	for _, p := range patterns {
-		ok, _ := filepath.Match(strings.ToLower(p), host)
-		if ok {
+		p = strings.ToLower(strings.TrimSpace(p))
+		if strings.HasPrefix(p, ".") {
+			if host == p[1:] || strings.HasSuffix(host, p) {
+				return true
+			}
+			continue
+		}
+		if host == p {
 			return true
 		}
 	}
 	return false
+}
+
+// ValidateHostPattern rejects URL host-allowlist patterns containing glob
+// metacharacters, which are a footgun: "*.github.io" also matches
+// "a.b.evil.github.io". Use an exact host or a leading-dot suffix (".github.io").
+func ValidateHostPattern(p string) error {
+	if strings.TrimSpace(p) == "" {
+		return fmt.Errorf("empty host pattern")
+	}
+	if strings.ContainsAny(p, "*?[]") {
+		return fmt.Errorf("host pattern %q must not contain wildcards; use an exact host or a leading-dot suffix like %q", p, ".github.io")
+	}
+	return nil
 }
 
 var ipv6ULA = mustCIDR("fc00::/7")

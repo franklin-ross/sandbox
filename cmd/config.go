@@ -147,7 +147,9 @@ firewall:
 #         regex: '^v\d+\.\d+\.\d+$'
 #   - name: fetch-build
 #     description: Download a build artifact
-#     cmd: curl -fsSL ${url} -o build.tar.gz
+#     # --resolve pins the validated IP (DNS-rebinding protection); --max-redirs 0
+#     # blocks redirect-based SSRF. ${url_resolve} is derived from the url arg.
+#     cmd: curl -fsS --resolve ${url_resolve} --max-redirs 0 ${url} -o build.tar.gz
 #     args:
 #       - name: url
 #         url:

@@ -129,7 +129,7 @@ firewall:
     allow:
         - domain: api.example.com
         - domain: api2.example.com
-          ports: [22, 80, 443] 
+          ports: [22, 80, 443]
         - cidr: 10.0.0.0/8
 
 # Run shell commands whenever the config or any sync'd files change
@@ -190,30 +190,62 @@ host_tools:
 
 #### Arg Fields
 
-| Field | Description |
-|---|---|
-| `name` | Arg name (required). Referenced in `cmd` as `${name}`. |
-| `description` | Human-readable description for the MCP input schema. |
-| `type` | `string` (default), `integer`, `number`, or `boolean`. |
-| `required` | Defaults to `true`. Set `false` for optional args. |
-| `default` | Default value when the arg is not provided. |
-| `enum` | Restrict to a set of allowed values. |
-| `regex` | Value must match this regular expression. |
-| `min` / `max` | Numeric range bounds (for `integer` and `number` types). |
-| `min_length` / `max_length` | String length bounds. |
-| `url` | URL constraint object (see below). |
-| `validate` | Shell command run on the host to validate the value. Receives the value on stdin; non-zero exit rejects. |
+| Field                       | Description                                                                                              |
+| --------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `name`                      | Arg name (required). Referenced in `cmd` as `${name}`.                                                   |
+| `description`               | Human-readable description for the MCP input schema.                                                     |
+| `type`                      | `string` (default), `integer`, `number`, or `boolean`.                                                   |
+| `required`                  | Defaults to `true`. Set `false` for optional args.                                                       |
+| `default`                   | Default value when the arg is not provided.                                                              |
+| `enum`                      | Restrict to a set of allowed values.                                                                     |
+| `regex`                     | Value must match this regular expression.                                                                |
+| `min` / `max`               | Numeric range bounds (for `integer` and `number` types).                                                 |
+| `min_length` / `max_length` | String length bounds.                                                                                    |
+| `url`                       | URL constraint object (see below).                                                                       |
+| `validate`                  | Shell command run on the host to validate the value. Receives the value on stdin; non-zero exit rejects. |
 
 #### URL Constraints
 
 The `url` field enables URL-specific validation with SSRF protection:
 
-| Field | Description |
-|---|---|
-| `schemes` | Allowed URL schemes. Defaults to `["https"]`. |
-| `hosts` | Host allowlist with glob support (e.g. `*.github.io`). |
-| `path_prefix` | URL path must start with this prefix. |
-| `block_private_ips` | Defaults to `true`. Blocks private, loopback, link-local, and metadata IPs after DNS resolution. |
+| Field               | Description                                                                                                                                                                                                                                                                                                                |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `schemes`           | Allowed URL schemes. Defaults to `["https"]`.                                                                                                                                                                                                                                                                              |
+| `hosts`             | Host allowlist. Patterns are literal (not glob): an exact host (`api.github.com`) or a leading-dot suffix (`.github.io`) matching that domain and its subdomains. The loader rejects wildcards. Omitting it lets the agent pass any URL — the loader warns, since an allowlist is the real defence against SSRF/rebinding. |
+| `path_prefix`       | URL path must start with this prefix.                                                                                                                                                                                                                                                                                      |
+| `block_private_ips` | Defaults to `true`. Blocks private, loopback, link-local, and metadata IPs after DNS resolution.                                                                                                                                                                                                                           |
+
+**Pinning the resolved IP (DNS-rebinding protection).** `block_private_ips`
+runs at validation time, but a plain `curl ${u}` re-resolves DNS when it runs,
+so a hostile name could resolve to a safe IP during validation and a private
+one (e.g. `169.254.169.254`) at fetch time. To close this gap, every `url` arg
+exposes a derived `${<name>_resolve}` placeholder holding the validated
+`host:port:ip`. Feed it to the client so the fetch connects to exactly the
+address the framework checked, and disable redirects:
+
+```yaml
+- name: fetch
+  description: Fetch a file from an allowlisted host
+  cmd: curl -fsS --resolve ${url_resolve} --max-redirs 0 ${url}
+  args:
+      - name: url
+        url:
+            hosts: [".github.io", objects.githubusercontent.com]
+```
+
+`${url_resolve}` is curl's (and wget2's) `--resolve` format. For clients that
+pin differently, each `url` arg also exposes the components:
+
+| Placeholder         | Value          | Example use                           |
+| ------------------- | -------------- | ------------------------------------- |
+| `${<name>_resolve}` | `host:port:ip` | `curl --resolve ${u_resolve} ${u}`    |
+| `${<name>_ip}`      | validated IP   | a client taking an IP + `Host` header |
+| `${<name>_host}`    | hostname       | `--header "Host: ${u_host}"`          |
+| `${<name>_port}`    | port           | —                                     |
+
+These derived placeholders exist only when `block_private_ips` is on (the
+default). TLS still validates the original hostname, so pinning the IP does not
+weaken certificate checks.
 
 All arg values are shell-quoted before substitution into `cmd`, preventing injection.
 

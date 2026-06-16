@@ -147,21 +147,114 @@ func TestURL_SchemeAllowlist(t *testing.T) {
 	}
 }
 
-func TestURL_HostGlob(t *testing.T) {
+func TestURL_HostAllowlist(t *testing.T) {
 	old := lookupIP
 	lookupIP = func(host string) ([]net.IP, error) {
 		return []net.IP{net.ParseIP("8.8.8.8")}, nil
 	}
 	defer func() { lookupIP = old }()
 
+	// ".github.io" is a leading-dot suffix (subdomains); "github.com" is exact.
 	ht := Tool{Args: []Arg{{Name: "u", URL: &URLConstraint{
-		Hosts: []string{"*.github.io", "github.com"},
+		Hosts: []string{".github.io", "github.com"},
 	}}}}
-	if _, err := ValidateAndCoerceArgs(ht, map[string]any{"u": "https://foo.github.io/x"}); err != nil {
-		t.Errorf("glob match: %v", err)
+	cases := []struct {
+		url string
+		ok  bool
+	}{
+		{"https://foo.github.io/x", true},  // subdomain via suffix
+		{"https://github.io/x", true},      // apex via suffix
+		{"https://github.com/x", true},     // exact
+		{"https://evil.github.com/x", false}, // exact must not match subdomains
+		{"https://gitlab.com/x", false},
 	}
-	if _, err := ValidateAndCoerceArgs(ht, map[string]any{"u": "https://gitlab.com/x"}); err == nil {
-		t.Error("non-match: want error")
+	for _, c := range cases {
+		_, err := ValidateAndCoerceArgs(ht, map[string]any{"u": c.url})
+		if c.ok && err != nil {
+			t.Errorf("%s: want allowed, got %v", c.url, err)
+		}
+		if !c.ok && err == nil {
+			t.Errorf("%s: want rejected", c.url)
+		}
+	}
+}
+
+func TestURL_RejectGlobPattern(t *testing.T) {
+	ht := Tool{
+		Name: "t",
+		Cmd:  "curl ${u}",
+		Args: []Arg{{Name: "u", URL: &URLConstraint{Hosts: []string{"*.github.io"}}}},
+	}
+	err := ValidatePlaceholders(ht)
+	if err == nil || !strings.Contains(err.Error(), "wildcard") {
+		t.Fatalf("want wildcard rejection, got %v", err)
+	}
+}
+
+func TestURL_PinDerivedValues(t *testing.T) {
+	old := lookupIP
+	lookupIP = func(host string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("140.82.112.3")}, nil
+	}
+	defer func() { lookupIP = old }()
+
+	ht := Tool{Args: []Arg{{Name: "u", URL: &URLConstraint{}}}}
+	out, err := ValidateAndCoerceArgs(ht, map[string]any{"u": "https://api.github.com/repos"})
+	if err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+	want := map[string]string{
+		"u_resolve": "api.github.com:443:140.82.112.3",
+		"u_ip":      "140.82.112.3",
+		"u_host":    "api.github.com",
+		"u_port":    "443",
+	}
+	for k, v := range want {
+		if out[k] != v {
+			t.Errorf("%s = %q, want %q", k, out[k], v)
+		}
+	}
+}
+
+func TestURL_ExplicitPortPin(t *testing.T) {
+	old := lookupIP
+	lookupIP = func(host string) ([]net.IP, error) {
+		return []net.IP{net.ParseIP("203.0.113.7")}, nil
+	}
+	defer func() { lookupIP = old }()
+
+	ht := Tool{Args: []Arg{{Name: "u", URL: &URLConstraint{}}}}
+	out, err := ValidateAndCoerceArgs(ht, map[string]any{"u": "https://example.com:8443/x"})
+	if err != nil {
+		t.Fatalf("validate: %v", err)
+	}
+	if out["u_port"] != "8443" || out["u_resolve"] != "example.com:8443:203.0.113.7" {
+		t.Errorf("port pin = %q / %q", out["u_port"], out["u_resolve"])
+	}
+}
+
+func TestURL_DerivedPlaceholdersAccepted(t *testing.T) {
+	ht := Tool{
+		Name: "fetch",
+		Cmd:  "curl --resolve ${u_resolve} --connect ${u_ip} --header Host:${u_host} --port ${u_port} ${u}",
+		Args: []Arg{{Name: "u", URL: &URLConstraint{Hosts: []string{"api.github.com"}}}},
+	}
+	if err := ValidatePlaceholders(ht); err != nil {
+		t.Errorf("derived placeholders should be accepted: %v", err)
+	}
+}
+
+func TestURL_DerivedPlaceholderCollision(t *testing.T) {
+	ht := Tool{
+		Name: "fetch",
+		Cmd:  "curl ${u} ${u_ip}",
+		Args: []Arg{
+			{Name: "u", URL: &URLConstraint{}},
+			{Name: "u_ip"}, // collides with the derived placeholder
+		},
+	}
+	if err := ValidatePlaceholders(ht); err == nil || !strings.Contains(err.Error(), "collides") {
+		t.Errorf("want collision error, got %v", err)
 	}
 }
 
