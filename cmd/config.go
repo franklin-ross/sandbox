@@ -105,15 +105,18 @@ firewall:
     - domain: pypi.org
     - domain: files.pythonhosted.org
 
-    # GitHub
-    - domain: github.com
-      ports: [22, 80, 443]
-    - domain: api.github.com
-    - domain: raw.githubusercontent.com
-    - domain: objects.githubusercontent.com
-    - domain: codeload.github.com
-    - domain: pkg-containers.githubusercontent.com
-    - domain: ghcr.io
+    # GitHub is NOT allowed by default: it is a general-purpose host for
+    # untrusted user content, making it a broad data-exfiltration channel
+    # (push/gist/issue) and arbitrary-payload source (raw.githubusercontent.com,
+    # codeload, ghcr.io). Add it per-workspace when a project needs it:
+    #   firewall:
+    #     allow:
+    #       - domain: github.com
+    #         ports: [22, 80, 443]
+    #       - domain: api.github.com
+    #       - domain: raw.githubusercontent.com
+    #       - domain: objects.githubusercontent.com
+    #       - domain: codeload.github.com
 
     # CDNs
     - domain: cdn.jsdelivr.net

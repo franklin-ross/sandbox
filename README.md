@@ -6,7 +6,7 @@ A CLI tool for running Claude Code in sandboxed Docker containers with network f
 
 The official Claude Code Docker sandbox has an opinionated auth flow that makes autonomous agent use painful. This tool gives you:
 
-- **Network firewalling** — restricts outbound traffic to Claude API, package registries (npm, Go, Rust, Ruby, PyPI), and GitHub
+- **Network firewalling** — restricts outbound traffic to Claude API and package registries (npm, Go, Rust, Ruby, PyPI); GitHub is opt-in
 - **No permission prompts** — `sandbox claude .` uses `--dangerously-skip-permissions` by default, because the container IS the sandbox
 - **Sandboxed VSCode** — `sandbox code .` opens VSCode remote into the container
 - **Auto-sync files** — automatically syncs files in `.sandbox/user/` to the container user directory, including binaries
@@ -280,12 +280,24 @@ By default, the firewall allows outbound traffic to:
 | Rust       | crates.io, static.crates.io, index.crates.io, static.rust-lang.org                                        |
 | Ruby       | rubygems.org, api.rubygems.org, index.rubygems.org                                                        |
 | PyPI       | pypi.org, files.pythonhosted.org                                                                          |
-| GitHub     | github.com (SSH+HTTP), api.github.com, raw/objects/codeload/pkg-containers.githubusercontent.com, ghcr.io |
 | CDNs       | cdn.jsdelivr.net, dl-cdn.alpinelinux.org, deb.nodesource.com                                              |
 | Cypress    | download.cypress.io, cdn.cypress.io                                                                       |
 | Playwright | cdn.playwright.dev, playwright.download.prss.microsoft.com                                                |
 
 The firewall blocks everything else. It allows DNS so processes inside the container can still resolve hostnames.
+
+**GitHub is not allowed by default.** It is a general-purpose host for untrusted user content, which makes it both a broad data-exfiltration channel (push, gist, issue) and an arbitrary-payload source (`raw.githubusercontent.com`, `codeload`, `ghcr.io`). Add it per-workspace when a project needs it:
+
+```yaml
+firewall:
+    allow:
+        - domain: github.com
+          ports: [22, 80, 443]
+        - domain: api.github.com
+        - domain: raw.githubusercontent.com
+        - domain: objects.githubusercontent.com
+        - domain: codeload.github.com
+```
 
 ## How it Works
 
