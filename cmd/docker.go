@@ -120,6 +120,13 @@ func EnsureStarted(wsPath string) (string, error) {
 		"--cap-add", "NET_ADMIN",
 		"--security-opt", "no-new-privileges",
 		"-v", wsPath+":"+wsPath,
+		// Mask the workspace's .sandbox/ with an empty tmpfs. The host reads the
+		// real config and host_tools from this path *before* launch; without the
+		// mask the sandboxed agent could rewrite .sandbox/config.yaml — whose
+		// host_tools run ON the host — and escalate out of the container on the
+		// next sync. The agent learns its host tools from the MCP input schema,
+		// not this file, so masking it costs no legitimate visibility.
+		"--tmpfs", filepath.Join(wsPath, ".sandbox"),
 		"-w", wsPath,
 		imageName)
 	// cmd.Stderr = os.Stderr
