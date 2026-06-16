@@ -15,41 +15,11 @@ function send(obj) {
     process.stdout.write(JSON.stringify(obj) + "\n");
 }
 
-function buildInputSchema(args) {
-    const properties = {};
-    const required = [];
-    for (const a of args) {
-        const type = a.type || "string";
-        const prop = { type };
-        if (a.description) prop.description = a.description;
-        if (a.enum) prop.enum = a.enum;
-        if (a.regex) prop.pattern = a.regex;
-        if (a.min !== undefined) prop.minimum = a.min;
-        if (a.max !== undefined) prop.maximum = a.max;
-        if (a.min_length !== undefined) prop.minLength = a.min_length;
-        if (a.max_length !== undefined) prop.maxLength = a.max_length;
-        if (a.url) {
-            prop.format = "uri";
-            const bits = [];
-            const schemes = a.url.schemes || ["https"];
-            bits.push(`scheme: ${schemes.join("|")}`);
-            if (a.url.hosts && a.url.hosts.length) {
-                bits.push(`host: ${a.url.hosts.join(", ")}`);
-            }
-            if (a.url.path_prefix) bits.push(`path prefix: ${a.url.path_prefix}`);
-            const blockPrivate = a.url.block_private_ips !== false;
-            if (blockPrivate) bits.push("private/loopback IPs blocked");
-            const note = `URL constraints — ${bits.join("; ")}`;
-            prop.description = prop.description ? `${prop.description}. ${note}` : note;
-        }
-        properties[a.name] = prop;
-        const isRequired = a.required === undefined ? true : a.required;
-        if (isRequired && a.default === undefined) required.push(a.name);
-    }
-    const schema = { type: "object", properties };
-    if (required.length) schema.required = required;
-    return schema;
-}
+// The input schema is computed host-side (hosttool.BuildInputSchema, the single
+// source of truth) and shipped in via /opt/sandbox-host-tools.json. This server
+// returns it verbatim rather than re-deriving it, so the agent-facing schema
+// cannot drift from the host's ValidateAndCoerceArgs enforcement.
+const EMPTY_SCHEMA = { type: "object", properties: {}, additionalProperties: false };
 
 function buildDescription(t) {
     return t.description || `Run host tool: ${t.name}`;
@@ -115,7 +85,7 @@ async function handleMessage(msg) {
                 tools: tools.map((t) => ({
                     name: t.name,
                     description: buildDescription(t),
-                    inputSchema: buildInputSchema(t.args || []),
+                    inputSchema: t.inputSchema || EMPTY_SCHEMA,
                 })),
             },
         });
