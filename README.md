@@ -161,7 +161,32 @@ Host tools let the agent inside the sandbox trigger a limited set of pre-configu
 
 When you use `sandbox claude`, the tool automatically exposes host tools as MCP tools, so Claude sees them as first-class tool calls with full input schemas.
 
-**SAFETY NOTE**: Create simple, focused tools with minimal surface area. These are a potential escalation point, so make them easy to grok, with the simplest args possible. Only use this for tools that need to run outside the sandbox, anything else should be a binary or shell script inside the sandbox.
+**SAFETY NOTE**: Host tools are the one channel that deliberately runs commands _outside_ the sandbox, so they are the primary escalation surface. Read [Security Model](#security-model) before defining any.
+
+The framework shell-quotes every argument, so argument _injection_ is not the risk. The risk is the command itself. Each tool runs as `sh -c` **on the host**, in the workspace directory — and the agent inside the sandbox can write to that directory freely (it is the same bind mount, owned by your UID). A tool is unsafe whenever its command executes or resolves anything out of that directory, because the agent controls those bytes:
+
+- **VCS tools** (`git …`, `gh …`) read `.git/config` (`core.hooksPath`, `core.fsmonitor`, aliases, pager) and run `.git/hooks/*` — all agent-writable. `gh` shells out to `git`. Either path hands the agent arbitrary host code execution, with no malicious argument required.
+- **Build / task runners** (`npm`, `yarn`, `make`, `task`, `./deploy.sh`) execute scripts out of agent-controlled `package.json` / `Makefile` / `Taskfile.yml` / the script file itself.
+- Anything that loads a config file, plugin, or binary resolved relative to the workspace cwd.
+
+The intended use is _"take some action without putting my credentials into the sandbox"_ using typed, validated arguments (an issue ID, an environment name) acting on a resource that lives entirely **outside** the workspace. It is **not** _"let the agent run my build on the host"_; the agent can already run build scripts inside the sandbox.
+
+If a tool must invoke `git`/`gh`, neutralise the workspace it would otherwise inherit — leave the directory and disable inherited config:
+
+```yaml
+host_tools:
+    - name: view-github-issue
+      description: View a GitHub issue
+      # cd out of the (agent-writable) workspace and ignore any .git config it
+      # planted, so an injected agent can't redirect hooks or fsmonitor onto the host.
+      cmd: cd "$HOME" && GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null gh issue view ${id} --repo myorg/myrepo --comments
+      args:
+          - name: id
+            type: integer
+            min: 1
+```
+
+Keep tools simple, focused, and easy to grok, with the simplest args possible. Anything that doesn't genuinely need to run outside the sandbox should be a binary or shell script _inside_ it.
 
 ```yaml
 host_tools:
@@ -272,17 +297,17 @@ The daemon logs to `~/.sandbox/daemon/daemon.log` on the host.
 
 By default, the firewall allows outbound traffic to:
 
-| Service    | Domains                                                                                                   |
-| ---------- | --------------------------------------------------------------------------------------------------------- |
-| Claude API | api.anthropic.com, claude.ai, statsig.anthropic.com, sentry.io                                            |
-| npm / Yarn | registry.npmjs.org, registry.yarnpkg.com, repo.yarnpkg.com, registry.npmmirror.com                        |
-| Go         | proxy.golang.org, sum.golang.org, storage.googleapis.com                                                  |
-| Rust       | crates.io, static.crates.io, index.crates.io, static.rust-lang.org                                        |
-| Ruby       | rubygems.org, api.rubygems.org, index.rubygems.org                                                        |
-| PyPI       | pypi.org, files.pythonhosted.org                                                                          |
-| CDNs       | cdn.jsdelivr.net, dl-cdn.alpinelinux.org, deb.nodesource.com                                              |
-| Cypress    | download.cypress.io, cdn.cypress.io                                                                       |
-| Playwright | cdn.playwright.dev, playwright.download.prss.microsoft.com                                                |
+| Service    | Domains                                                                            |
+| ---------- | ---------------------------------------------------------------------------------- |
+| Claude API | api.anthropic.com, claude.ai, statsig.anthropic.com, sentry.io                     |
+| npm / Yarn | registry.npmjs.org, registry.yarnpkg.com, repo.yarnpkg.com, registry.npmmirror.com |
+| Go         | proxy.golang.org, sum.golang.org, storage.googleapis.com                           |
+| Rust       | crates.io, static.crates.io, index.crates.io, static.rust-lang.org                 |
+| Ruby       | rubygems.org, api.rubygems.org, index.rubygems.org                                 |
+| PyPI       | pypi.org, files.pythonhosted.org                                                   |
+| CDNs       | cdn.jsdelivr.net, dl-cdn.alpinelinux.org, deb.nodesource.com                       |
+| Cypress    | download.cypress.io, cdn.cypress.io                                                |
+| Playwright | cdn.playwright.dev, playwright.download.prss.microsoft.com                         |
 
 The firewall blocks everything else. It allows DNS so processes inside the container can still resolve hostnames.
 
@@ -298,6 +323,27 @@ firewall:
         - domain: objects.githubusercontent.com
         - domain: codeload.github.com
 ```
+
+## Security Model
+
+The sandbox is designed to minimise the chance of an unattended agent reading malicious instructions, or acting on them in a meaningful way. It cannot make an agent entirely safe. If you're truly paranoid, look elsewhere.
+
+The container is unprivileged (`no-new-privileges`, agent user), outbound traffic is firewalled to an allowlist, your credentials never enter the container, the host-tool control plane is unreachable from the container (host-only Unix socket + a control token in an unmounted path), and the workspace's `.sandbox/` is masked so the agent cannot rewrite the config that drives the host.
+
+### What it does _not_ protect
+
+It cannot protect the host from **code the host later executes out of a workspace the agent had write access to.** The workspace is a read-write bind mount, so for the duration of a session the agent can write any file in the tree, including dotfiles and VCS metadata. Two consequences:
+
+- **`git commit` / `git push` from the host is host code execution.** An agent can plant `.git/hooks/*`, or set `core.hooksPath` / `core.fsmonitor` / an alias / a pager in `.git/config`, and the payload runs the next time _you_ run git in that repo on the host — not inside the sandbox. This requires no host tools at all; it is inherent to mounting a repo you also operate on from the host.
+- **Tracked build scripts are host code execution.** `package.json` scripts, `Makefile`, `Taskfile.yml`, `.husky/*`, lint/test configs, etc. all run on the host if you build, test, or run the project there afterwards.
+
+None of this is visible in `git diff` — hooks and most config live outside the working tree, and a changed npm script is one line in a file you may not read. **Reviewing the diff is not always sufficient.** Treat a post-session workspace as untrusted code if you intend to execute it on the host.
+
+This is a property of the shared read-write mount, not a fixable bug: the agent shares your UID on the mount, and the local `.git/config` it can poison overrides any global git setting you might use to defend, so the sandbox cannot carve out a protected `.git/`.
+
+### Host tools
+
+[Host tools](#host-tools) are the one channel that deliberately runs commands on the host. They are guarded (typed/validated/shell-quoted arguments, per-session token, host-only registration), but the command you configure runs in the agent-writable workspace directory, so a poorly chosen tool re-opens exactly the execution path above. See the safety note in that section before defining any.
 
 ## How it Works
 
